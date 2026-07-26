@@ -33,6 +33,8 @@ const ACHIEVEMENTS = [
   // --- animals ---
   { id: 'breed', name: 'The Parrots and the Bats', desc: 'Breed two animals', check: (ev) => ev.type === 'breed' },
   { id: 'tame', name: 'Best Friends Forever', desc: 'Tame a wolf', check: (ev) => ev.type === 'tame' },
+  { id: 'ink', name: 'Squid Squeeze', desc: 'Collect an ink sac', check: (ev) => ev.type === 'pickup' && ev.item === ITEM.INK_SAC },
+  { id: 'golem', name: 'Iron Defender', desc: 'Construct an iron golem', check: (ev) => ev.type === 'golem' },
   // --- redstone & rails ---
   { id: 'repeater', name: 'Circuit Designer', desc: 'Craft a repeater', check: (ev) => ev.type === 'craft' && ev.item === BLOCK.REPEATER },
   { id: 'piston', name: 'Heavy Machinery', desc: 'Craft a piston', check: (ev) => ev.type === 'craft' && ev.item === BLOCK.PISTON },

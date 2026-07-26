@@ -17,6 +17,8 @@ let arrowGeo = null;
 let shaftMat = null;
 let headMat = null;
 let fireMat = null;
+let flaskMat = null;
+let flaskCapMat = null;
 
 function getArrowMesh() {
   if (!arrowGeo) {
@@ -39,6 +41,19 @@ function getFireballMesh() {
   }
   const group = new THREE.Group();
   group.add(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), fireMat));
+  return group;
+}
+
+function getFlaskMesh() {
+  if (!flaskMat) {
+    flaskMat = new THREE.MeshLambertMaterial({ color: 0x9a40c8, emissive: 0x3a1050 });
+    flaskCapMat = new THREE.MeshLambertMaterial({ color: 0xd8d8e0 });
+  }
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.22), flaskMat));
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), flaskCapMat);
+  cap.position.y = 0.16;
+  group.add(cap);
   return group;
 }
 
@@ -81,6 +96,22 @@ export class ProjectileManager {
     });
   }
 
+  // Witch flask: arrow-like arc, shatters on any impact ('flaskBreak' event).
+  shootFlask(origin, dir, speed, damage) {
+    const mesh = getFlaskMesh();
+    mesh.position.copy(origin);
+    this.scene.add(mesh);
+    this.arrows.push({
+      mesh,
+      velocity: dir.clone().multiplyScalar(speed),
+      damage,
+      fromPlayer: false,
+      stuck: false,
+      life: 0,
+      kind: 'flask',
+    });
+  }
+
   _remove(i) {
     this.scene.remove(this.arrows[i].mesh);
     this.arrows.splice(i, 1);
@@ -113,20 +144,25 @@ export class ProjectileManager {
       const p = a.mesh.position;
       p.addScaledVector(a.velocity, dt);
       // Point the arrow along its velocity.
-      if (a.kind !== 'fire' && a.velocity.lengthSq() > 0.001) {
+      if (a.kind === 'arrow' && a.velocity.lengthSq() > 0.001) {
         const look = p.clone().sub(a.velocity);
         a.mesh.lookAt(look);
       }
-      if (a.kind === 'fire') {
+      if (a.kind === 'fire' || a.kind === 'flask') {
         a.mesh.rotation.x += dt * 6;
         a.mesh.rotation.y += dt * 5;
       }
 
-      // Block collision: arrows stick; fireballs burst.
+      // Block collision: arrows stick; fireballs burst; flasks shatter.
       const bx = Math.floor(p.x), by = Math.floor(p.y), bz = Math.floor(p.z);
       if (isSolid(this.world.getBlock(bx, by, bz))) {
         if (a.kind === 'fire') {
           events.push({ type: 'fireBurst', pos: p.clone() });
+          this._remove(i);
+          continue;
+        }
+        if (a.kind === 'flask') {
+          events.push({ type: 'flaskBreak', pos: p.clone() });
           this._remove(i);
           continue;
         }

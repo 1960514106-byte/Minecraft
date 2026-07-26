@@ -34,6 +34,7 @@ const LOOT_TABLES = {
     { id: ITEM.APPLE, min: 1, max: 3, chance: 0.6 },
     { id: ITEM.CARROT, min: 1, max: 3, chance: 0.4 },
     { id: ITEM.RAW_FISH, min: 1, max: 2, chance: 0.35 },
+    { id: ITEM.SADDLE, min: 1, max: 1, chance: 0.1 },
   ],
   dungeon: [
     { id: ITEM.IRON_INGOT, min: 1, max: 3, chance: 0.7 },
@@ -44,6 +45,7 @@ const LOOT_TABLES = {
     { id: ITEM.DIAMOND, min: 1, max: 1, chance: 0.15 },
     { id: ITEM.GOLDEN_APPLE, min: 1, max: 1, chance: 0.06 },
     { id: ITEM.STRING, min: 1, max: 3, chance: 0.4 },
+    { id: ITEM.SADDLE, min: 1, max: 1, chance: 0.25 },
   ],
   mineshaft: [
     { id: BLOCK.RAIL, min: 2, max: 6, chance: 0.7 },
@@ -401,9 +403,10 @@ function generateFortressPart(world, chunk) {
       }
       // Central altar: the boss summoning point.
       put(wx, y + 1, wz, BLOCK.NETHER_BRICK);
-      // Blaze-imp spawner + loot.
+      // Blaze spawner + loot (blazes are the reliable blaze-rod source; fire
+      // imps still roam the nether ambiently but drop rods rarely).
       put(wx - 4, y + 1, wz, BLOCK.MOB_SPAWNER);
-      world.structureSpawners.set(`${wx - 4},${y + 1},${wz}`, 'fire_imp');
+      world.structureSpawners.set(`${wx - 4},${y + 1},${wz}`, 'blaze');
       put(wx + 4, y + 1, wz, BLOCK.CHEST);
       world.structureLoot.set(`${wx + 4},${y + 1},${wz}`, 'fortress');
     }

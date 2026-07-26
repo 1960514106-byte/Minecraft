@@ -436,6 +436,14 @@ export const TILES = {
   FISHING_ROD:    205,
   RAW_FISH:       206,
   COOKED_FISH:    207,
+  // ---- Phase 4 (208+): mob drops + saddle -------------------------------------
+  // --- row 52 (208..211) ---
+  GHAST_TEAR:     208,
+  SLIMEBALL:      209,
+  MAGMA_CREAM:    210,
+  INK_SAC:        211,
+  // --- row 53 (212..215) ---
+  SADDLE:         212,
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -541,6 +549,12 @@ export const ITEM = {
   FISHING_ROD: 1093,
   RAW_FISH: 1094,
   COOKED_FISH: 1095,
+  // ---- Phase 4 (1096+): new mob drops + saddle ---------------------------------
+  GHAST_TEAR: 1096,
+  SLIMEBALL: 1097,
+  MAGMA_CREAM: 1098,
+  INK_SAC: 1099,
+  SADDLE: 1100,
 };
 
 // Per-block definition. `top`/`bottom`/`side` are atlas tile indices.
@@ -815,6 +829,13 @@ export const ITEMS = {
   [ITEM.FISHING_ROD]: { name: 'Fishing Rod', tile: TILES.FISHING_ROD, stack: 1, durability: 64 },
   [ITEM.RAW_FISH]: { name: 'Raw Fish', tile: TILES.RAW_FISH, food: 2 },
   [ITEM.COOKED_FISH]: { name: 'Cooked Fish', tile: TILES.COOKED_FISH, food: 6 },
+  // ---- Phase 4: new mob drops + saddle ---------------------------------------------
+  [ITEM.GHAST_TEAR]: { name: 'Ghast Tear', tile: TILES.GHAST_TEAR },
+  [ITEM.SLIMEBALL]: { name: 'Slimeball', tile: TILES.SLIMEBALL },
+  [ITEM.MAGMA_CREAM]: { name: 'Magma Cream', tile: TILES.MAGMA_CREAM },
+  // Ink sacs double as the black dye (gray tones mix in bone meal).
+  [ITEM.INK_SAC]: { name: 'Ink Sac', tile: TILES.INK_SAC },
+  [ITEM.SADDLE]: { name: 'Saddle', tile: TILES.SADDLE, stack: 1 },
 };
 
 // True if an item ID refers to a placeable block (vs. an item-only thing).

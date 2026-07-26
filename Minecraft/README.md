@@ -38,8 +38,11 @@ vendored locally under `js/vendor/`.
   steel, and step through to the **nether**: a roofed netherrack cavern world
   with a lava sea, glowstone clusters, soul sand bogs and nether-brick
   fortresses (1:4 coordinate scale, automatic return portals)
-- Nether mobs: neutral zombie pigmen (anger the whole pack at your peril) and
-  fire imps that lob real fireballs and drop blaze rods
+- Nether mobs: neutral zombie pigmen (anger the whole pack at your peril),
+  fire imps that lob real fireballs, **ghasts** drifting overhead with
+  long-range fireballs (gunpowder + ghast tears), melee **wither skeletons**,
+  bouncing **magma cubes** (split on death → magma cream) and fortress
+  **blazes** — the reliable blaze-rod source (imps only drop rods rarely now)
 - Craft an **Overlord Sigil** (blaze rods + obsidian + diamond) and use it on
   nether bricks to summon the **Nether Overlord** — a flying boss with a
   health bar, fireball volleys, minion summons and a melee slam. Defeat it for
@@ -59,6 +62,22 @@ vendored locally under `js/vendor/`.
 - **Wolves** roam forests: tame them with bones — tamed wolves follow you,
   fight whatever you fight, and sit/stand on command
 - Villagers spawn in the world and offer a trade menu
+- **Witches** appear rarely at night, keeping their distance and lobbing
+  damaging flasks; drop redstone/glowstone dust
+- **Slimes** hop through plains nights and split into smaller slimes when
+  killed — only the smallest drop slimeballs
+- **Squids** swim in deep water and drop ink sacs (the black dye: ink + white
+  wool → black wool; add 1 or 2 bone meal for gray / light gray)
+- **Horses** graze plains in pairs: saddle one (dungeon/village chest loot),
+  then right-click to ride — WASD steers, Space jumps, Shift dismounts
+- **Iron golems**: build a T of 4 iron blocks (2-high column + 2 arms on the
+  top block) and right-click the top block with an iron ingot. The blocks
+  become a 100 HP guardian that batters any hostile within 16 blocks
+- **Silverfish** exist for spawner use (strongholds later) — fast, erratic
+  and bitey
+- All mobs now have real gravity: they fall into pits (taking fall damage),
+  hop up 1-block ledges and jump at walls; flyers (imps, ghasts, blazes)
+  hover instead
 - Dungeon/fortress spawner blocks keep producing their mob while you're close
 
 ### Redstone
@@ -144,6 +163,9 @@ offline - no internet connection or CDN is required. See the import map in
 | Open / close door | Right click the door |
 | Press button / cycle repeater delay | Right click it |
 | Ride a minecart | Right click a cart; `W`/`S` push, `Space` hops off |
+| Saddle a horse | Right click a horse while holding a Saddle |
+| Ride a horse | Right click a saddled horse; `WASD` steers, `Space` jumps, `Shift` dismounts |
+| Build an iron golem | Right click the top of a 4-block iron T with an iron ingot |
 | Feed / breed an animal | Right click it with carrot (pig), wheat (cow/sheep) or seeds (chicken) |
 | Tame a wolf | Right click it with a bone |
 | Wolf sit / follow | Right click a tamed wolf with an empty hand |

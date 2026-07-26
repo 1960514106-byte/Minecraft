@@ -1949,6 +1949,97 @@ export function createAtlasTexture() {
   fishTile(TILES.RAW_FISH, [116, 142, 168], [198, 206, 212], [96, 118, 142]);
   fishTile(TILES.COOKED_FISH, [190, 132, 70], [224, 188, 132], [156, 104, 54]);
 
+  // ===========================================================================
+  // Phase 4 tiles (208+): mob drops + saddle. Appended after all earlier tiles
+  // so the shared rng stream keeps them pixel-identical.
+  // ===========================================================================
+
+  // ---- GHAST_TEAR : pale teardrop --------------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.GHAST_TEAR);
+    for (let y = 4; y <= 12; y++) {
+      const w = y <= 6 ? y - 4 : Math.min(3, 12 - y + 2);
+      for (let x = 8 - w; x <= 8 + w; x++) {
+        const n = (rng() * 2 - 1) * 8;
+        const edge = x === 8 - w || x === 8 + w || y === 12;
+        setpx(ox + x, oy + y, (edge ? 168 : 212) + n, (edge ? 176 : 218) + n, (edge ? 190 : 228) + n);
+      }
+    }
+    setpx(ox + 7, oy + 7, 240, 244, 250); // glint
+  }
+
+  // ---- SLIMEBALL : green blob --------------------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.SLIMEBALL);
+    for (let y = 5; y <= 12; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const dx = x - 7.5, dy = y - 8.5;
+        if (dx * dx + dy * dy > 14) continue;
+        const n = (rng() * 2 - 1) * 12;
+        setpx(ox + x, oy + y, 92 + n, 190 + n, 84 + n);
+      }
+    }
+    setpx(ox + 6, oy + 7, 168, 232, 158);
+    setpx(ox + 7, oy + 6, 168, 232, 158);
+  }
+
+  // ---- MAGMA_CREAM : orange blob with a dark swirl -----------------------------
+  {
+    const { ox, oy } = toolTile(TILES.MAGMA_CREAM);
+    for (let y = 5; y <= 12; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const dx = x - 7.5, dy = y - 8.5;
+        if (dx * dx + dy * dy > 14) continue;
+        const n = (rng() * 2 - 1) * 14;
+        setpx(ox + x, oy + y, 226 + n, 122 + n, 36 + n);
+      }
+    }
+    for (const [x, y] of [[6, 8], [7, 7], [8, 8], [9, 9], [8, 10]]) {
+      setpx(ox + x, oy + y, 96, 40, 16);
+    }
+    setpx(ox + 6, oy + 6, 250, 200, 90);
+  }
+
+  // ---- INK_SAC : dark blob with a pale highlight --------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.INK_SAC);
+    for (let y = 5; y <= 12; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const dx = x - 7.5, dy = y - 8.5;
+        if (dx * dx + dy * dy > 13) continue;
+        const n = (rng() * 2 - 1) * 8;
+        setpx(ox + x, oy + y, 26 + n, 28 + n, 44 + n);
+      }
+    }
+    setpx(ox + 6, oy + 6, 96, 104, 140);
+    setpx(ox + 7, oy + 6, 72, 80, 120);
+    // Little spout on top
+    setpx(ox + 8, oy + 4, 40, 44, 66);
+  }
+
+  // ---- SADDLE : brown seat with stirrups -----------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.SADDLE);
+    // Seat: arched brown band
+    for (let x = 3; x <= 12; x++) {
+      const lift = (x <= 4 || x >= 11) ? 0 : 1;
+      for (let y = 6 - lift; y <= 8; y++) {
+        const n = (rng() * 2 - 1) * 10;
+        setpx(ox + x, oy + y, 118 + n, 66 + n, 30 + n);
+      }
+    }
+    // Pommel + cantle horns
+    setpx(ox + 3, oy + 5, 140, 84, 40);
+    setpx(ox + 12, oy + 5, 140, 84, 40);
+    // Stirrup straps
+    for (let y = 9; y <= 12; y++) {
+      setpx(ox + 4, oy + y, 84, 48, 22);
+      setpx(ox + 11, oy + y, 84, 48, 22);
+    }
+    setpx(ox + 4, oy + 13, 168, 168, 176); // metal stirrups
+    setpx(ox + 11, oy + 13, 168, 168, 176);
+  }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

@@ -16,6 +16,7 @@ import { Inventory } from './inventory.js';
 import { DropManager } from './drops.js';
 import { Feedback } from './feedback.js';
 import { MobManager } from './mobs.js';
+import { MOB_DEFS, mobDef } from './mobdefs.js';
 import { FurnaceManager } from './furnace.js';
 import { ChestManager, CHEST_SLOTS } from './chest.js';
 import { craftResult, craftCost, SHAPELESS, SHAPED_2, SHAPED_3 } from './crafting.js';
@@ -130,7 +131,7 @@ function ensureNether() {
   return netherWorld;
 }
 
-const SAVE_VERSION = 10;
+const SAVE_VERSION = 11;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
@@ -193,6 +194,7 @@ let minecarts = new MinecartManager(scene, world, hasSave ? save.minecarts : nul
 let ridingCart = null;
 let boats = new BoatManager(scene, world, hasSave ? save.boats : null);
 let ridingBoat = null;
+let ridingHorse = null;   // a saddled horse mob currently carrying the player
 
 // Skeletons fire real arrow entities the player can see and dodge.
 mobs.onShoot = (from, to) => {
@@ -210,6 +212,15 @@ mobs.onShootFire = (from, to, damage) => {
   projectiles.shootFireball(from, dir, 11, damage);
   feedback.play('fireShoot');
 };
+// Witch flasks arc like arrows but shatter on impact (real poison waits for
+// the Phase 7 effect system; for now the flask deals direct damage).
+mobs.onShootFlask = (from, to) => {
+  const dir = to.clone().sub(from);
+  dir.y += 0.25; // slight lob
+  dir.normalize();
+  projectiles.shootFlask(from, dir, 13, 3);
+  feedback.play('bowShoot');
+};
 // Creeper blasts and redstone-triggered TNT run through the shared explosion.
 mobs.onExplode = (center, radius) => explodeAt(center, radius);
 // Mob visual/audio effects (teleports, breeding hearts, failed taming).
@@ -220,6 +231,8 @@ mobs.onEffect = (name, pos) => {
 };
 mobs.onWolfBite = (dmg) => survival.damage(dmg, 'Wolf bite');
 mobs.onKillByWolf = (result) => handleMobKill(result);
+// Environmental deaths (fall damage) drop loot through the same path.
+mobs.onEnvKill = (result) => handleMobKill(result);
 mobs.onBreed = () => achievements.trigger({ type: 'breed' });
 redstoneOver.onIgnite = (x, y, z) => igniteTNT(x, y, z);
 redstoneOver.onSound = (name) => feedback.play(name);
@@ -279,7 +292,9 @@ function handleMobKill(result) {
   const dropPos = result.position.clone();
   dropPos.y += 0.8;
   if (result.drops) for (const d of result.drops) drops.spawn(d.id, d.count, dropPos);
-  xpManager.spawnOrb(dropPos, xpFromKill(result.type));
+  // XP comes from the mob registry (damageMob attaches it); config.xpFromKill
+  // stays as the fallback for results that predate the registry field.
+  xpManager.spawnOrb(dropPos, result.xp != null ? result.xp : xpFromKill(result.type));
   achievements.trigger({ type: 'kill', hostile: mobs.isHostile(result.type), mob: result.type });
   if (result.type === 'boss') {
     achievements.trigger({ type: 'boss' });
@@ -321,6 +336,7 @@ function switchDimension(target) {
   for (let i = mobs.mobs.length - 1; i >= 0; i--) mobs.removeAt(i);
   ridingCart = null;
   ridingBoat = null;
+  ridingHorse = null;
   player.riding = null;
 
   world = target;
@@ -1065,6 +1081,24 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         survival._setMessage(m.sitting ? 'Wolf sits' : 'Wolf follows');
         return;
       }
+      // Horses: saddle with a saddle item, then right-click to mount.
+      if (m.type === 'horse') {
+        if (!m.saddled && heldNow && heldNow.id === ITEM.SADDLE) {
+          m.saddled = true;
+          if (m.mesh.userData.saddle) m.mesh.userData.saddle.visible = true;
+          if (!isCreative()) inventory.removeOneAt(selected);
+          triggerSwing();
+          feedback.play('place');
+          survival._setMessage('Horse saddled!');
+          refreshHotbar();
+          scheduleSave();
+          return;
+        }
+        if (m.saddled && !ridingHorse && !ridingCart && !ridingBoat) {
+          mountHorse(m);
+          return;
+        }
+      }
       if (heldNow && mobs.feedAnimal(m, heldNow.id)) {
         if (!isCreative()) inventory.removeOneAt(selected);
         triggerSwing();
@@ -1194,6 +1228,32 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         scheduleSave();
       }
       return;
+    }
+
+    // Iron golem: right-click the TOP iron block of a T (one block below the
+    // clicked one + two arms beside it) while holding an iron ingot. The four
+    // iron blocks are consumed; the ingot is kept (it only "animates" the T).
+    if (held && held.id === ITEM.IRON_INGOT && hit && hitBlock === BLOCK.IRON_BLOCK) {
+      const isIron = (a, b, c) => world.getBlock(a, b, c) === BLOCK.IRON_BLOCK;
+      let arms = null;
+      if (isIron(hit.x - 1, hit.y, hit.z) && isIron(hit.x + 1, hit.y, hit.z)) {
+        arms = [[hit.x - 1, hit.y, hit.z], [hit.x + 1, hit.y, hit.z]];
+      } else if (isIron(hit.x, hit.y, hit.z - 1) && isIron(hit.x, hit.y, hit.z + 1)) {
+        arms = [[hit.x, hit.y, hit.z - 1], [hit.x, hit.y, hit.z + 1]];
+      }
+      if (arms && isIron(hit.x, hit.y - 1, hit.z)) {
+        world.setBlock(hit.x, hit.y, hit.z, BLOCK.AIR);
+        world.setBlock(hit.x, hit.y - 1, hit.z, BLOCK.AIR);
+        for (const [ax, ay, az] of arms) world.setBlock(ax, ay, az, BLOCK.AIR);
+        mobs.addMob(new THREE.Vector3(hit.x + 0.5, hit.y - 1, hit.z + 0.5), 'iron_golem');
+        achievements.trigger({ type: 'golem' });
+        feedback.play('place');
+        feedback.smokePuff(new THREE.Vector3(hit.x + 0.5, hit.y, hit.z + 0.5));
+        survival._setMessage('Iron Golem constructed!', 4);
+        triggerSwing();
+        scheduleSave();
+        return;
+      }
     }
 
     // Overlord Sigil: summon the boss on nether bricks, in the nether.
@@ -1997,6 +2057,14 @@ if (new URLSearchParams(location.search).has('debug')) {
     get fluids() { return fluids; },
     get boats() { return boats; },
     get drops() { return drops; },
+    get mobs() { return mobs; },
+    dayNight,
+    survival,
+    MOB_DEFS,
+    // Horse riding, callable from automated checks.
+    mountHorse: (m) => mountHorse(m),
+    dismountHorse: () => dismountHorse(),
+    get ridingHorse() { return ridingHorse; },
     // Debug edits also wake the fluid sim, matching player place/break.
     setBlock: (x, y, z, id, meta = 0) => {
       world.setBlock(x, y, z, id, meta);
@@ -2579,6 +2647,27 @@ function dismountBoat() {
   player.velocity.set(0, 4, 0);
 }
 
+// ---- Horse riding (boat pattern, but the mount is a mob) ------------------------
+// Space JUMPS (the horse has real gravity), so Shift dismounts instead.
+function mountHorse(horse) {
+  ridingHorse = horse;
+  horse.ridden = true;
+  player.riding = horse;
+  achievements.trigger({ type: 'ride' });
+  survival._setMessage('Riding (WASD to steer, Space jumps, Shift dismounts)');
+}
+
+function dismountHorse() {
+  if (!ridingHorse) return;
+  const horse = ridingHorse;
+  horse.ridden = false;
+  ridingHorse = null;
+  player.riding = null;
+  const hp = horse.mesh.position;
+  player.getObject().position.set(hp.x + 0.9, hp.y + 1 + 1.62, hp.z);
+  player.velocity.set(0, 3, 0);
+}
+
 // ---- Fishing -----------------------------------------------------------------
 // A single per-player bobber: cast on right click, floats when it lands in
 // water, "bites" after a random 5-15 s wait (short dip + sound cue). Reeling
@@ -3006,7 +3095,9 @@ function animate() {
   const arrowEvents = projectiles.update(dt, p, mobs.mobs);
   for (const ev of arrowEvents) {
     if (ev.type === 'player') {
-      survival.damage(ev.damage, ev.kind === 'fire' ? 'Fireball' : 'Arrow hit');
+      survival.damage(ev.damage, ev.kind === 'fire' ? 'Fireball' : ev.kind === 'flask' ? 'Witch flask' : 'Arrow hit');
+    } else if (ev.type === 'flaskBreak') {
+      feedback.smokePuff(ev.pos);
     } else if (ev.type === 'mob') {
       const result = mobs.damageMob(ev.mob, ev.damage, ev.pos);
       feedback.play(result && result.killed ? 'mobDeath' : 'hit');
@@ -3076,11 +3167,47 @@ function animate() {
     }
   }
 
+  // Horses: camera-relative steering at ride speed; Space jumps (real mob
+  // gravity from mobs.js applies), Shift dismounts.
+  if (ridingHorse) {
+    if (!mobs.mobs.includes(ridingHorse)) {
+      // The horse died or was removed out from under the rider.
+      ridingHorse = null;
+      player.riding = null;
+    } else if (player.keys['ShiftLeft'] || player.keys['ShiftRight']) {
+      dismountHorse();
+    } else {
+      const horse = ridingHorse;
+      const hdef = mobDef('horse');
+      camera.getWorldDirection(_dir);
+      const fx = _dir.x, fz = _dir.z;
+      const fl = Math.hypot(fx, fz) || 1;
+      const fwdX = fx / fl, fwdZ = fz / fl;
+      const rightX = -fwdZ, rightZ = fwdX;
+      let ix = 0, iz = 0;
+      if (player.keys['KeyW']) { ix += fwdX; iz += fwdZ; }
+      if (player.keys['KeyS']) { ix -= fwdX; iz -= fwdZ; }
+      if (player.keys['KeyD']) { ix += rightX; iz += rightZ; }
+      if (player.keys['KeyA']) { ix -= rightX; iz -= rightZ; }
+      const il = Math.hypot(ix, iz);
+      if (il > 0) {
+        mobs.tryMove(horse, (ix / il) * (hdef.rideSpeed || 9), (iz / il) * (hdef.rideSpeed || 9), dt);
+        horse.mesh.rotation.y = Math.atan2(ix / il, iz / il);
+      }
+      if (player.keys['Space'] && horse.onGround && (horse.vy || 0) === 0) {
+        horse.vy = hdef.jumpSpeed || 8.5;
+        horse.onGround = false;
+      }
+      const hp = horse.mesh.position;
+      player.getObject().position.set(hp.x, hp.y + 1.35 + 1.15, hp.z);
+    }
+  }
+
   // Nether portals: standing inside one for a moment travels between worlds.
   if (portalCooldown > 0) portalCooldown -= dt;
   {
     const feetBlock = world.getBlock(Math.floor(p.x), Math.floor(p.y - 1.0), Math.floor(p.z));
-    if (feetBlock === BLOCK.NETHER_PORTAL && portalCooldown <= 0 && !ridingCart && !ridingBoat) {
+    if (feetBlock === BLOCK.NETHER_PORTAL && portalCooldown <= 0 && !ridingCart && !ridingBoat && !ridingHorse) {
       portalTimer += dt;
       if (Math.random() < dt * 4) feedback.warpBurst(p.clone().add(new THREE.Vector3(0, -1, 0)));
       if (portalTimer >= 1.2) {
@@ -3108,16 +3235,13 @@ function animate() {
   if (mobSoundTimer <= 0) {
     mobSoundTimer = 3 + Math.random() * 5;
     for (const m of mobs.mobs) {
+      // Ambient sounds are data in the mob registry: { name, range, prob }.
+      const snd = mobDef(m.type).sound;
+      if (!snd) continue;
       const d = m.mesh.position.distanceTo(p);
-      if (d < 16) {
-        if (m.type === 'zombie') { feedback.play('zombieGrunt'); break; }
-        if (m.type === 'skeleton') { feedback.play('skeletonRattle'); break; }
-        if (m.type === 'creeper' && d < 8) { feedback.play('creeperHiss'); break; }
-        if ((m.type === 'pig' || m.type === 'cow' || m.type === 'sheep' || m.type === 'chicken') && d < 10 && Math.random() < 0.4) {
-          feedback.play('animalSqueal'); break;
-        }
-        if (m.type === 'wolf' && d < 12 && Math.random() < 0.3) { feedback.play('wolfBark'); break; }
-        if (m.type === 'boss' && d < 30 && Math.random() < 0.3) { feedback.play('bossRoar'); break; }
+      if (d < snd.range && (snd.prob >= 1 || Math.random() < snd.prob)) {
+        feedback.play(snd.name);
+        break;
       }
     }
   }

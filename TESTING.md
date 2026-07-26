@@ -200,3 +200,65 @@ Fishing:
       (none in creative).
 - [ ] Raw fish smelts into cooked fish (2 vs 6 hunger); village chests can
       contain raw fish.
+
+## Phase 4 — Mob registry, gravity, 10 new mobs (SAVE_VERSION 11)
+
+Registry refactor (must be behaviour-neutral for the 14 legacy types):
+- [ ] All 14 legacy mobs spawn with their old HP (zombie/skeleton/creeper 10,
+      spider 14, enderman 40, wolf 20, villager 20, pigman 14, imp 16,
+      boss 200, farm animals 8) and behave as before: hostiles chase at night,
+      skeletons kite and shoot, creepers fuse, endermen anger on stare,
+      pigmen/wolves anger as packs, passives flee when hit.
+- [ ] Kills drop the same loot as before (registry tables); sheep still drop
+      the white wool BLOCK; XP orb values unchanged (registry `xp`,
+      `config.xpFromKill` remains only as a fallback).
+- [ ] Breeding foods unchanged (carrot/wheat/wheat/seeds); taming and wolf
+      sit/follow flags survive a save/reload.
+- [ ] Ambient mob sounds still play (now data-driven from `MOB_DEFS.sound`).
+- [ ] `?debug=1` exposes `__game.mobs`, `__game.dayNight`, `__game.survival`,
+      `__game.MOB_DEFS` and the horse mount hooks.
+
+Mob gravity (replaces the old per-frame ground snap):
+- [ ] Dig a 3-deep pit between yourself and a zombie at night: it walks in,
+      falls to the pit floor and cannot jump back out.
+- [ ] Push/lure a mob off a 5+ block drop: it falls, lands, and takes fall
+      damage (drops/XP appear if the fall kills it).
+- [ ] A chasing mob steps up 1-block ledges and hops at 1-block walls
+      (jump impulse); spiders still climb up to 3-block steps.
+- [ ] Fire imps hover with their bob; the boss flight is unchanged; mobs in
+      water sink slowly (buoyancy) instead of plummeting.
+- [ ] No floating mobs after chunk edits under them (they now fall).
+
+New mobs:
+- [ ] Nether: ghasts drift high and lob fireballs (~4 s within 24), dropping
+      gunpowder + occasional ghast tears; wither skeletons melee for 5;
+      magma cubes hop and split; fortress spawners now emit BLAZES that hover,
+      spin their rods and fire triple bursts (50% blaze rod — fire imps only
+      20% now).
+- [ ] Overworld nights: rare witches keep 8-10 distance and throw purple
+      flasks ("Witch flask" damage); slimes hop in plains and split 3→2→1,
+      size 1 dropping slimeballs (xp 4/2/1).
+- [ ] Squids swim inside water columns ≥ 2 deep, never leave the water, drop
+      1-3 ink sacs; a beached squid flops and suffocates.
+- [ ] Ink sac dyeing: ink+white wool → black; ink+bone meal+wool → gray;
+      ink+2 bone meal+wool → light gray.
+- [ ] Horses (plains, pairs): right-click with a Saddle (dungeon 25% / village
+      10% chest loot) to saddle, right-click again to mount. WASD steers at
+      ~9 m/s camera-relative, Space jumps (real gravity), SHIFT dismounts
+      (Space is the jump, unlike boats/carts). Saddled horses never despawn
+      and keep the saddle through save/reload.
+- [ ] Iron golem: place 4 iron blocks as a T (2-high column + 2 top arms),
+      right-click the TOP block holding an iron ingot → blocks are consumed
+      (ingot kept), golem spawns, "Iron Defender" achievement. It attacks
+      hostiles within 16 (12 damage + launch), wanders otherwise, never
+      follows you and never despawns. Drops 3-5 iron ingots, no XP.
+- [ ] Silverfish never spawns naturally but works when spawned via debug
+      (`__game.mobs.addMob(pos, 'silverfish')`) — fast erratic 1-damage bites.
+- [ ] Achievements: "Squid Squeeze" on picking up an ink sac; "Iron Defender"
+      on building a golem; "Into Fire" still triggers from any blaze rod.
+
+Save round-trip:
+- [ ] A v10 world loads and reports version 11; mobs saved before the upgrade
+      reappear unchanged (new fields vy/size/saddled default).
+- [ ] Save with slimes of several sizes + a saddled horse, reload: sizes,
+      scales and the saddle persist.

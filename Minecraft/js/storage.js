@@ -136,7 +136,15 @@ function v9to10(save) {
   return save;
 }
 
-const MIGRATIONS = { 7: v7to8, 8: v8to9, 9: v9to10 };
+// v10 -> v11: Phase 4 mob registry + new mobs. Saved mob entries gained
+// optional fields (vy, size for slimes, saddled for horses) that default when
+// absent, so existing saves need no rewriting — only the version advances.
+function v10to11(save) {
+  save.version = 11;
+  return save;
+}
+
+const MIGRATIONS = { 7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11 };
 
 export function migrateSave(save) {
   if (!save || typeof save.version !== 'number') return save;

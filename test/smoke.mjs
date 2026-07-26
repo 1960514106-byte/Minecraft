@@ -22,6 +22,10 @@ import {
   craftResult, craftCost, SHAPELESS, SHAPED_2, SHAPED_3,
 } from '../Minecraft/js/crafting.js';
 import { Noise } from '../Minecraft/js/noise.js';
+import {
+  MOB_DEFS, AI_NAMES, mobDef, spawnCandidates, weightedPick, rollMobDrops,
+  xpForMob, breedFoodOf,
+} from '../Minecraft/js/mobdefs.js';
 import { migrateSave } from '../Minecraft/js/storage.js';
 import { getMode, setMode, isCreative, setOnModeChange } from '../Minecraft/js/gamemode.js';
 
@@ -332,7 +336,7 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 10, 'migrated save version is 10 (v7 chains through v8/v9 to v10)');
+  assert(m.version === 11, 'migrated save version is 11 (v7 chains through the whole ladder)');
   assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
@@ -353,28 +357,34 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 10 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+  assert(v3.version === 11 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
     'v3 save migrates through the whole chain');
 
   // A v8 save gains the mode field, then the fluids/boats defaults.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 10 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
-    'v8 save upgrades to v10 with mode survival, ids untouched');
+  assert(v8.version === 11 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+    'v8 save upgrades to v11 with mode survival, ids untouched');
 
   // v9 -> v10: fluids/boats defaults appear, everything else untouched.
   const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
-  assert(v9.version === 10 && v9.mode === 'creative', 'v9 save upgrades to v10 (mode preserved)');
+  assert(v9.version === 11 && v9.mode === 'creative', 'v9 save upgrades to v11 (mode preserved)');
   assert(v9.fluids && Array.isArray(v9.fluids.active) && v9.fluids.active.length === 0,
     'v9 -> v10 adds an empty fluids state');
   assert(Array.isArray(v9.boats) && v9.boats.length === 0, 'v9 -> v10 adds an empty boats list');
 
-  // A current save passes through unchanged (existing fluids/boats preserved).
+  // v10 -> v11 (Phase 4): mob entries pass through untouched; optional new
+  // fields (vy/size/saddled) simply default when absent.
   const v10 = migrateSave({
     version: 10, seed: 1337, mode: 'creative',
     fluids: { active: ['1,2,3'] }, boats: [{ x: 1, y: 20, z: 3 }],
+    mobs: [{ type: 'pig', x: 1, y: 20, z: 3, health: 8, baby: true, growTimer: 5 }],
   });
-  assert(v10.version === 10 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
-    'v10 save is a no-op (fluids/boats preserved)');
+  assert(v10.version === 11 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
+    'v10 save upgrades to v11 (fluids/boats preserved)');
+  assert(v10.mobs.length === 1 && v10.mobs[0].type === 'pig' && v10.mobs[0].baby === true,
+    'v10 -> v11 leaves saved mobs untouched');
+  const v11 = migrateSave({ version: 11, seed: 1337, mobs: [{ type: 'slime', size: 2, x: 0, z: 0 }] });
+  assert(v11.version === 11 && v11.mobs[0].size === 2, 'v11 save is a no-op');
 }
 
 // ---- Phase 3: buckets, boats, fishing, fluids ----------------------------------------------
@@ -511,6 +521,140 @@ function grid(...entries) {
   const sim5 = new FluidSim(w4);
   sim5.restore(snap);
   assert(sim5.active.size === sim4.active.size, 'restore re-wakes the pending cells');
+}
+
+// ---- Phase 4: mob registry integrity ---------------------------------------------------
+{
+  const aiNames = new Set(AI_NAMES);
+  for (const [type, def] of Object.entries(MOB_DEFS)) {
+    assert(Number.isFinite(def.hp) && def.hp > 0, `MOB_DEFS.${type} has hp`);
+    assert(typeof def.ai === 'string' && aiNames.has(def.ai),
+      `MOB_DEFS.${type} ai '${def.ai}' is an implemented AI handler`);
+    assert(typeof def.mesh === 'string' && def.mesh.length > 0, `MOB_DEFS.${type} has a mesh key`);
+    assert(Number.isFinite(def.xp) && def.xp >= 0, `MOB_DEFS.${type} has xp`);
+    assert(typeof def.hostile === 'boolean', `MOB_DEFS.${type} has a hostile flag`);
+    assert(Number.isFinite(def.speed), `MOB_DEFS.${type} has a speed`);
+    // Drops (tables or functions-of-mob) only reference defined ids.
+    const tables = typeof def.drops === 'function'
+      ? [def.drops({ type, size: 1 }), def.drops({ type, size: 3 })]
+      : [def.drops];
+    for (const table of tables) {
+      assert(Array.isArray(table), `MOB_DEFS.${type} drops resolve to an array`);
+      for (const d of table) assert(defined(d.id), `MOB_DEFS.${type} drop id ${d.id} is defined`);
+    }
+    if (def.breedFood != null) assert(defined(def.breedFood), `MOB_DEFS.${type} breedFood defined`);
+    if (def.spawn) {
+      assert(def.spawn.dim === 'overworld' || def.spawn.dim === 'nether',
+        `MOB_DEFS.${type} spawn dim valid`);
+      assert(Number.isFinite(def.spawn.weight) && def.spawn.weight >= 0,
+        `MOB_DEFS.${type} spawn weight valid`);
+    }
+  }
+  // All 14 legacy types are registered.
+  for (const t of ['zombie', 'skeleton', 'creeper', 'spider', 'enderman', 'wolf', 'pig',
+    'cow', 'sheep', 'chicken', 'villager', 'zombie_pigman', 'fire_imp', 'boss']) {
+    assert(MOB_DEFS[t], `legacy mob '${t}' registered`);
+  }
+  // Registry hp values match the pre-registry constants.
+  const HP = { zombie: 10, skeleton: 10, creeper: 10, spider: 14, enderman: 40, wolf: 20,
+    pig: 8, cow: 8, sheep: 8, chicken: 8, villager: 20, zombie_pigman: 14, fire_imp: 16, boss: 200 };
+  for (const [t, hp] of Object.entries(HP)) assert(MOB_DEFS[t].hp === hp, `${t} hp is ${hp}`);
+  // Hostile flags match the old isHostile() list.
+  for (const t of ['zombie', 'skeleton', 'creeper', 'spider', 'enderman', 'zombie_pigman', 'fire_imp', 'boss']) {
+    assert(MOB_DEFS[t].hostile === true, `${t} is hostile`);
+  }
+  for (const t of ['pig', 'cow', 'sheep', 'chicken', 'villager', 'wolf']) {
+    assert(MOB_DEFS[t].hostile === false, `${t} is not hostile`);
+  }
+  // Breeding foods match the old BREED_FOOD table.
+  assert(breedFoodOf('pig') === ITEM.CARROT && breedFoodOf('cow') === ITEM.WHEAT &&
+    breedFoodOf('sheep') === ITEM.WHEAT && breedFoodOf('chicken') === ITEM.WHEAT_SEEDS &&
+    breedFoodOf('zombie') === null, 'breeding foods preserved');
+  // Spawn lists derive correctly from the registry.
+  const night = spawnCandidates({ dim: 'overworld', time: 'night' });
+  assert(night.some((c) => c.type === 'zombie') && night.some((c) => c.type === 'enderman') &&
+    !night.some((c) => c.type === 'pig') && !night.some((c) => c.type === 'wolf'),
+    'overworld night list has hostiles, no passives/wolves');
+  const day = spawnCandidates({ dim: 'overworld', time: 'day' });
+  assert(day.some((c) => c.type === 'pig') && day.some((c) => c.type === 'villager') &&
+    !day.some((c) => c.type === 'zombie'), 'overworld day list has passives only');
+  const nether = spawnCandidates({ dim: 'nether' });
+  assert(nether.some((c) => c.type === 'zombie_pigman') && nether.some((c) => c.type === 'fire_imp') &&
+    !nether.some((c) => c.type === 'boss'), 'nether list has pigmen + imps, no boss');
+  assert(nether.find((c) => c.type === 'zombie_pigman').weight === 2,
+    'pigman keeps its double weight');
+  // weightedPick respects weights (deterministic rand).
+  assert(weightedPick(night, () => 0).type === night[0].type, 'weightedPick picks first at r=0');
+  assert(weightedPick([], Math.random) === null, 'weightedPick handles empty lists');
+  // Drop rolling: guaranteed entries always drop, counts stay in range.
+  const beefRolls = rollMobDrops({ type: 'cow' }, () => 0);
+  assert(beefRolls.some((d) => d.id === ITEM.RAW_BEEF && d.count === 1), 'cow always drops beef');
+  const sheepRolls = rollMobDrops({ type: 'sheep' }, () => 0);
+  assert(sheepRolls.some((d) => d.id === BLOCK.WOOL_WHITE), 'sheep drops the wool block');
+  assert(rollMobDrops({ type: 'wolf' }).length === 0, 'wolves drop nothing');
+  // XP values preserved (registry replaces the config.xpFromKill switch).
+  assert(xpForMob({ type: 'zombie' }) === 5 && xpForMob({ type: 'enderman' }) === 8 &&
+    xpForMob({ type: 'zombie_pigman' }) === 6 && xpForMob({ type: 'boss' }) === 50 &&
+    xpForMob({ type: 'pig' }) === 1, 'xp values match xpFromKill');
+  assert(mobDef('nonsense') === MOB_DEFS.zombie, 'unknown types fall back to zombie def');
+
+  // ---- Phase 4 step 3: the 10 new mobs + items -------------------------------
+  for (const t of ['ghast', 'blaze', 'slime', 'magma_cube', 'witch', 'iron_golem',
+    'wither_skeleton', 'silverfish', 'squid', 'horse']) {
+    assert(MOB_DEFS[t], `new mob '${t}' registered`);
+  }
+  // New items exist with icons.
+  for (const it of ['GHAST_TEAR', 'SLIMEBALL', 'MAGMA_CREAM', 'INK_SAC', 'SADDLE']) {
+    assert(ITEM[it] >= 1096 && ITEMS[ITEM[it]] && Number.isInteger(ITEMS[ITEM[it]].itile || ITEMS[ITEM[it]].tile),
+      `ITEM.${it} defined with a tile`);
+  }
+  assert(itemStackMax(ITEM.SADDLE) === 1, 'saddles do not stack');
+  // Slime family: per-size hp/xp/damage tables, splitting, size-1-only drops.
+  for (const t of ['slime', 'magma_cube']) {
+    const d = MOB_DEFS[t];
+    assert(d.split && d.sizes && d.sizes[3].hp === 16 && d.sizes[2].hp === 4 && d.sizes[1].hp === 1,
+      `${t} sizes carry hp 16/4/1`);
+    assert(xpForMob({ type: t, size: 3 }) === 4 && xpForMob({ type: t, size: 1 }) === 1,
+      `${t} xp scales with size`);
+    assert(rollMobDrops({ type: t, size: 3 }, () => 0).length === 0,
+      `big ${t} drops nothing`);
+    assert(rollMobDrops({ type: t, size: 1 }, () => 0).length === 1,
+      `size-1 ${t} drops its ball`);
+  }
+  // Flying and persistence flags.
+  assert(MOB_DEFS.ghast.flies && MOB_DEFS.blaze.flies && MOB_DEFS.fire_imp.flies,
+    'ghast/blaze/fire imp fly');
+  assert(MOB_DEFS.iron_golem.persist === true && MOB_DEFS.iron_golem.spawn === null,
+    'iron golem persists and never spawns naturally');
+  assert(MOB_DEFS.silverfish.spawn === null && MOB_DEFS.blaze.spawn === null,
+    'silverfish/blaze are spawner-or-summon only');
+  // Spawn table integration.
+  const nether2 = spawnCandidates({ dim: 'nether' });
+  for (const t of ['ghast', 'wither_skeleton', 'magma_cube']) {
+    assert(nether2.some((c) => c.type === t), `${t} in the nether ambient list`);
+  }
+  const night2 = spawnCandidates({ dim: 'overworld', time: 'night' });
+  assert(night2.some((c) => c.type === 'witch') && night2.some((c) => c.type === 'slime'),
+    'witch + slime join overworld nights');
+  assert(!night2.some((c) => c.type === 'squid') && !night2.some((c) => c.type === 'horse'),
+    'squid/horse stay out of the ambient ground lists');
+  const water = spawnCandidates({ dim: 'overworld', kind: 'water' });
+  assert(water.length === 1 && water[0].type === 'squid', 'water spawn list is exactly the squid');
+  const day2 = spawnCandidates({ dim: 'overworld', time: 'day' });
+  const horseCand = day2.find((c) => c.type === 'horse');
+  assert(horseCand && horseCand.def.spawn.group === 2, 'horses spawn in the day list, groups of 2');
+  // Fire imp rod nerf: blaze is the reliable source now.
+  assert(MOB_DEFS.fire_imp.drops[0].prob === 0.2 && MOB_DEFS.blaze.drops[0].prob === 0.5,
+    'blaze rods: imp 20%, blaze 50%');
+  // Ink-sac dyeing (light gray must out-rank gray for 2 bone meal).
+  const black = craftResult(grid([0, ITEM.INK_SAC], [1, BLOCK.WOOL_WHITE]), 2);
+  assert(black && black.id === BLOCK.WOOL_BLACK, 'ink sac + white wool -> black wool');
+  const gray = craftResult(grid([0, ITEM.INK_SAC], [1, ITEM.BONE_MEAL], [3, BLOCK.WOOL_WHITE]), 2);
+  assert(gray && gray.id === BLOCK.WOOL_GRAY, 'ink + bone meal + wool -> gray wool');
+  const lgray = craftResult(grid(
+    [0, ITEM.INK_SAC], [1, ITEM.BONE_MEAL], [3, ITEM.BONE_MEAL], [4, BLOCK.WOOL_WHITE],
+  ), 2);
+  assert(lgray && lgray.id === BLOCK.WOOL_LIGHT_GRAY, 'ink + 2 bone meal + wool -> light gray wool');
 }
 
 // ---- Noise determinism ------------------------------------------------------------------

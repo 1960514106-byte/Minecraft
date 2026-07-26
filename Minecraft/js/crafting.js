@@ -54,6 +54,12 @@ const SHAPELESS = [
   { need: { [ITEM.ORANGE_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_ORANGE, count: 1 } },
   { need: { [ITEM.LIME_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_LIME, count: 1 } },
   { need: { [ITEM.PINK_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_PINK, count: 1 } },
+  // Ink sacs act as the black dye directly; gray tones mix in bone meal.
+  { need: { [ITEM.INK_SAC]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_BLACK, count: 1 } },
+  // Light gray (2 bone meal) MUST precede gray (1): shapeless matching accepts
+  // supersets of counts, so the more demanding recipe is tried first.
+  { need: { [ITEM.INK_SAC]: 1, [ITEM.BONE_MEAL]: 2, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_LIGHT_GRAY, count: 1 } },
+  { need: { [ITEM.INK_SAC]: 1, [ITEM.BONE_MEAL]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_GRAY, count: 1 } },
   // Legacy wool item (pre-Phase-2 sheep drops) converts 1:1 into white wool
   { need: { [ITEM.WOOL]: 1 }, out: { id: BLOCK.WOOL_WHITE, count: 1 } },
 ];
