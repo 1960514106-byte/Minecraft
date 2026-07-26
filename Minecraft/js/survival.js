@@ -4,7 +4,7 @@
 // the gameplay rules that turn those signals into survival consequences.
 // =============================================================================
 
-import { BLOCK, armorPoints } from './config.js';
+import { BLOCK, armorPoints, itemMaxDurability, stackEnchant } from './config.js';
 import { isCreative } from './gamemode.js';
 
 const MAX_HEALTH = 20;
@@ -55,6 +55,12 @@ export class Survival {
     this.damageModifier = null;
     this._effRegenTimer = 0;
     this._poisonTimer = 0;
+
+    // Phase 10 hooks (injected by main.js):
+    //   onDeath()                — XP drop at the death point
+    //   onArmorBreak(slot, id)   — sound/message when a worn-out piece vanishes
+    this.onDeath = null;
+    this.onArmorBreak = null;
 
     this.restore(state);
   }
@@ -181,11 +187,33 @@ export class Survival {
     if (reason !== 'Starving') {
       const reduction = Math.min(0.6, this.armorTotal() * 0.04);
       reduced = Math.max(1, amount * (1 - reduction));
+      // Every hit the armor mitigates wears each equipped piece by 1 point.
+      if (reduction > 0) this._wearArmor();
     }
     this.health = clamp(this.health - reduced, 0, MAX_HEALTH);
     this.damageFlash = 1;
     this._setMessage(reason);
     if (this.health <= 0) this._die(reason);
+  }
+
+  // Charge 1 durability to every equipped piece (a stack without the field is
+  // at full durability — the tool-stack convention). Unbreaking skips losses;
+  // a piece that reaches 0 vanishes through the onArmorBreak hook.
+  _wearArmor() {
+    for (const slot of ['head', 'chest', 'legs', 'feet']) {
+      const s = this.armor[slot];
+      if (!s) continue;
+      const max = itemMaxDurability(s.id);
+      if (max <= 0) continue;
+      const unb = stackEnchant(s, 'unbreaking');
+      if (unb > 0 && Math.random() < unb / (unb + 1)) continue;
+      if (s.durability == null) s.durability = max;
+      s.durability -= 1;
+      if (s.durability <= 0) {
+        this.armor[slot] = null;
+        if (this.onArmorBreak) this.onArmorBreak(slot, s.id);
+      }
+    }
   }
 
   heal(amount) {
@@ -334,6 +362,7 @@ export class Survival {
     this.alive = false;
     this.health = 0;
     this._setMessage(reason || 'You died', 9999);
+    if (this.onDeath) this.onDeath(reason);
   }
 
   _setMessage(text, seconds = 1.8) {

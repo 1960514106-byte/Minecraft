@@ -2516,6 +2516,176 @@ export function createAtlasTexture() {
     setpx(ox + 8, oy + 8, 20, 40, 30);
   }
 
+  // ==== Phase 10 tiles (260+) — appended so the rng stream of every earlier
+  // tile is untouched (the deterministic-atlas invariant). ======================
+
+  // ---- ANCIENT_DEBRIS (260) : dark brown block with tan spiral scars --------------------
+  {
+    const { ox, oy } = speckle(TILES.ANCIENT_DEBRIS, [70, 48, 38], 10);
+    for (let y = 0; y < TILE_PX; y++) {
+      for (let x = 0; x < TILE_PX; x++) {
+        // Coarse swirl bands read as the vanilla debris spiral.
+        if (((x * 3 + y * 5) % 11) < 2 && rng() > 0.35) setpx(ox + x, oy + y, 122, 92, 62);
+        else if (rng() > 0.93) setpx(ox + x, oy + y, 40, 28, 24);
+      }
+    }
+  }
+
+  // ---- NETHERITE_SCRAP (261) : jagged brown chunk item ----------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.NETHERITE_SCRAP);
+    for (let y = 4; y <= 12; y++) {
+      for (let x = 3; x <= 12; x++) {
+        const jag = Math.abs(x - 8) + Math.abs(y - 8) + rng() * 3;
+        if (jag < 8) {
+          const n = (rng() * 2 - 1) * 12;
+          setpx(ox + x, oy + y, 96 + n, 66 + n, 50 + n);
+        }
+      }
+    }
+    setpx(ox + 6, oy + 6, 150, 112, 76);
+    setpx(ox + 10, oy + 9, 150, 112, 76);
+  }
+
+  // ---- NETHERITE_INGOT (262) : dark grey-purple ingot ------------------------------------
+  ingotTile(TILES.NETHERITE_INGOT, [76, 68, 78]);
+
+  // ---- NETHERITE TOOLS (263..266) : iron shapes in the netherite palette -----------------
+  const NETHERITE_HI = [92, 82, 94];   // head
+  const NETHERITE_LO = [52, 46, 56];   // shaded edge
+  {
+    const { ox, oy } = toolTile(TILES.NETHERITE_PICKAXE);
+    drawHandle(ox, oy);
+    for (let x = 3; x <= 12; x++) {
+      setpx(ox + x, oy + 3, NETHERITE_HI[0], NETHERITE_HI[1], NETHERITE_HI[2]);
+      setpx(ox + x, oy + 4, NETHERITE_LO[0], NETHERITE_LO[1], NETHERITE_LO[2]);
+    }
+    setpx(ox + 2, oy + 4, 40, 34, 44);
+    setpx(ox + 13, oy + 4, 40, 34, 44);
+  }
+  {
+    const { ox, oy } = toolTile(TILES.NETHERITE_AXE);
+    drawHandle(ox, oy);
+    for (let y = 2; y <= 7; y++) {
+      for (let x = 3; x <= 8; x++) {
+        if (x + y < 8 || x - y > 3) continue;
+        setpx(ox + x, oy + y, NETHERITE_HI[0], NETHERITE_HI[1], NETHERITE_HI[2]);
+      }
+    }
+    for (let y = 3; y <= 6; y++) setpx(ox + 8, oy + y, NETHERITE_LO[0], NETHERITE_LO[1], NETHERITE_LO[2]);
+  }
+  {
+    const { ox, oy } = toolTile(TILES.NETHERITE_SHOVEL);
+    drawHandle(ox, oy);
+    for (let y = 2; y <= 7; y++) {
+      for (let x = 5; x <= 10; x++) {
+        const dx = Math.abs(x - 7.5);
+        if (dx + Math.abs(y - 4.5) > 4.2) continue;
+        setpx(ox + x, oy + y, NETHERITE_HI[0], NETHERITE_HI[1], NETHERITE_HI[2]);
+      }
+    }
+    setpx(ox + 7, oy + 7, NETHERITE_LO[0], NETHERITE_LO[1], NETHERITE_LO[2]);
+    setpx(ox + 8, oy + 7, NETHERITE_LO[0], NETHERITE_LO[1], NETHERITE_LO[2]);
+  }
+  swordTile(TILES.NETHERITE_SWORD, NETHERITE_HI, NETHERITE_LO);
+
+  // ---- NETHERITE ARMOR (267..270) ---------------------------------------------------------
+  helmetTile(TILES.NETHERITE_HELMET, [82, 72, 84]);
+  chestTile(TILES.NETHERITE_CHEST, [82, 72, 84]);
+  leggingsTile(TILES.NETHERITE_LEGS, [82, 72, 84]);
+  bootsTile(TILES.NETHERITE_BOOTS, [82, 72, 84]);
+
+  // ---- MAP (271) : parchment with terrain doodles ------------------------------------------
+  {
+    const { ox, oy } = speckle(TILES.MAP, [214, 190, 140], 8);
+    for (let i = 0; i < TILE_PX; i++) { // darker parchment border
+      setpx(ox + i, oy, 160, 134, 92); setpx(ox + i, oy + 15, 160, 134, 92);
+      setpx(ox, oy + i, 160, 134, 92); setpx(ox + 15, oy + i, 160, 134, 92);
+    }
+    for (let i = 0; i < 22; i++) {  // green landmass blotches
+      const x = 2 + Math.floor(rng() * 12), y = 2 + Math.floor(rng() * 12);
+      setpx(ox + x, oy + y, 96, 140, 70);
+    }
+    for (let i = 0; i < 10; i++) {  // blue water specks
+      const x = 2 + Math.floor(rng() * 12), y = 2 + Math.floor(rng() * 12);
+      setpx(ox + x, oy + y, 80, 110, 190);
+    }
+    setpx(ox + 8, oy + 8, 200, 40, 40); // the player marker
+  }
+
+  // ---- COMPASS (272) : grey case with a red needle -----------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.COMPASS);
+    for (let y = 2; y <= 13; y++) {
+      for (let x = 2; x <= 13; x++) {
+        const d = Math.hypot(x - 7.5, y - 7.5);
+        if (d < 6) {
+          const n = (rng() * 2 - 1) * 10;
+          setpx(ox + x, oy + y, 120 + n, 120 + n, 128 + n);
+        }
+      }
+    }
+    for (let y = 4; y <= 11; y++) {
+      for (let x = 4; x <= 11; x++) {
+        if (Math.hypot(x - 7.5, y - 7.5) < 3.6) setpx(ox + x, oy + y, 40, 44, 52);
+      }
+    }
+    for (let i = 0; i < 4; i++) setpx(ox + 7, oy + 4 + i, 210, 50, 40);  // needle N
+    for (let i = 0; i < 3; i++) setpx(ox + 8, oy + 8 + i, 230, 230, 236); // needle S
+  }
+
+  // ---- PAPER (273) : white sheet ------------------------------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.PAPER);
+    for (let y = 2; y <= 13; y++) {
+      for (let x = 3; x <= 12; x++) {
+        const n = (rng() * 2 - 1) * 6;
+        setpx(ox + x, oy + y, 236 + n, 236 + n, 230 + n);
+      }
+    }
+    for (let x = 3; x <= 12; x++) setpx(ox + x, oy + 13, 190, 190, 184); // bottom shadow
+  }
+
+  // ---- HORSE ARMOR (274..276) : caparison silhouettes per material --------------------------
+  const horseArmorTile = (index, base, dark) => {
+    const { ox, oy } = toolTile(index);
+    for (let y = 5; y <= 11; y++) {           // body drape
+      for (let x = 2; x <= 12; x++) {
+        const n = (rng() * 2 - 1) * 8;
+        setpx(ox + x, oy + y, base[0] + n, base[1] + n, base[2] + n);
+      }
+    }
+    for (let y = 2; y <= 6; y++) {            // neck/head guard
+      for (let x = 11; x <= 13; x++) setpx(ox + x, oy + y, base[0], base[1], base[2]);
+    }
+    for (let x = 2; x <= 12; x++) setpx(ox + x, oy + 11, dark[0], dark[1], dark[2]);
+    setpx(ox + 4, oy + 12, dark[0], dark[1], dark[2]);   // leg straps
+    setpx(ox + 10, oy + 12, dark[0], dark[1], dark[2]);
+  };
+  horseArmorTile(TILES.IRON_HORSE_ARMOR, [206, 206, 214], [130, 130, 140]);
+  horseArmorTile(TILES.GOLDEN_HORSE_ARMOR, [232, 196, 70], [170, 130, 30]);
+  horseArmorTile(TILES.DIAMOND_HORSE_ARMOR, [90, 214, 200], [40, 140, 130]);
+
+  // ---- SAPLINGS (277..279) : tiny tree sprigs (cross-model tiles) -----------------------------
+  const saplingTile = (index, leaf, dark) => {
+    const { ox, oy } = toolTile(index);
+    for (let i = 0; i < 5; i++) setpx(ox + 7, oy + 9 + i, 104, 72, 40);  // stem
+    for (let y = 3; y <= 9; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const d = Math.abs(x - 7.5) + Math.abs(y - 6) * 1.3;
+        if (d < 5 && rng() > 0.25) {
+          const n = (rng() * 2 - 1) * 14;
+          setpx(ox + x, oy + y, leaf[0] + n, leaf[1] + n, leaf[2] + n);
+        } else if (d < 5 && rng() > 0.6) {
+          setpx(ox + x, oy + y, dark[0], dark[1], dark[2]);
+        }
+      }
+    }
+  };
+  saplingTile(TILES.SAPLING_OAK, [64, 132, 52], [36, 88, 34]);
+  saplingTile(TILES.SAPLING_BIRCH, [110, 158, 82], [70, 116, 56]);
+  saplingTile(TILES.SAPLING_SPRUCE, [42, 96, 66], [24, 66, 46]);
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

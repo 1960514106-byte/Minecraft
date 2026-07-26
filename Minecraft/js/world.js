@@ -609,6 +609,62 @@ export class World {
     this.placeTreeVoxel(chunk, wx, topY + 2, wz, BLOCK.SPRUCE_LEAVES, true); // pointed crown
   }
 
+  // Phase 10: runtime tree growth for a planted sapling (random tick or bone
+  // meal). Same shapes as the worldgen planters above, but written through
+  // setBlocks so the tree persists in the edit diff. (x,y,z) is the sapling
+  // cell — it becomes the first trunk block. Returns false if blocked.
+  growTree(x, y, z, saplingId) {
+    const spruce = saplingId === BLOCK.SAPLING_SPRUCE;
+    const birch = saplingId === BLOCK.SAPLING_BIRCH;
+    const woodId = spruce ? BLOCK.SPRUCE_WOOD : birch ? BLOCK.BIRCH_WOOD : BLOCK.WOOD;
+    const leafId = spruce ? BLOCK.SPRUCE_LEAVES : birch ? BLOCK.BIRCH_LEAVES : BLOCK.LEAVES;
+    // Same deterministic trunk-height rolls as plantTree / plantSpruceTree.
+    const trunk = spruce
+      ? 6 + Math.floor(this.hash01(x + 11, z + 17) * 2)
+      : 4 + Math.floor(this.hash01(x + 7, z + 13) * 2);
+    const topY = y + trunk - 1;
+    if (topY + 3 >= CHUNK_HEIGHT) return false;
+    for (let i = 1; i < trunk; i++) {
+      if (this.getBlock(x, y + i, z) !== BLOCK.AIR) return false; // trunk blocked
+    }
+    const edits = [];
+    const leaf = (lx, ly, lz) => {
+      // Leaves never overwrite anything a player (or terrain) put there.
+      if (this.getBlock(lx, ly, lz) === BLOCK.AIR) edits.push({ x: lx, y: ly, z: lz, id: leafId });
+    };
+    for (let i = 0; i < trunk; i++) edits.push({ x, y: y + i, z, id: woodId });
+    if (spruce) {
+      for (let dy = 0; dy <= trunk - 3; dy++) {
+        const ly = topY - dy;
+        const rad = dy === 0 ? 1 : (dy % 2 === 1 ? 2 : 1);
+        for (let dx = -rad; dx <= rad; dx++) {
+          for (let dz = -rad; dz <= rad; dz++) {
+            if (dx === 0 && dz === 0) continue;
+            if (Math.abs(dx) === rad && Math.abs(dz) === rad) continue;
+            leaf(x + dx, ly, z + dz);
+          }
+        }
+      }
+      leaf(x, topY + 1, z);
+      leaf(x, topY + 2, z);
+    } else {
+      for (let dy = -1; dy <= 1; dy++) {
+        const ly = topY + dy;
+        const rad = dy === 1 ? 1 : 2;
+        for (let dx = -rad; dx <= rad; dx++) {
+          for (let dz = -rad; dz <= rad; dz++) {
+            if (dx === 0 && dz === 0 && dy < 1) continue;
+            if (Math.abs(dx) === rad && Math.abs(dz) === rad) continue;
+            leaf(x + dx, ly, z + dz);
+          }
+        }
+      }
+      leaf(x, topY + 1, z);
+    }
+    this.setBlocks(edits);
+    return true;
+  }
+
   plantCactus(chunk, lx, lz, surfaceY) {
     const wx = chunk.cx * CHUNK_SIZE + lx;
     const wz = chunk.cz * CHUNK_SIZE + lz;

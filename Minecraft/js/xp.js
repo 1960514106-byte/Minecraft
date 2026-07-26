@@ -128,6 +128,14 @@ export class XPManager {
     return results;
   }
 
+  // Death (Phase 10): all levels and progress are lost. The caller decides how
+  // much comes back as orbs at the death point (min(level*7, 100), main.js).
+  reset() {
+    this.level = 0;
+    this.xp = 0;
+    this.xpToNext = xpForLevel(0);
+  }
+
   // Spend `n` XP levels (anvil operations, enchanting). Returns false if the
   // player cannot afford it. Accumulated partial-level xp is forfeit (vanilla).
   spendLevels(n) {

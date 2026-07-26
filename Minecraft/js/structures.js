@@ -58,6 +58,8 @@ const LOOT_TABLES = {
     { id: ITEM.GOLDEN_APPLE, min: 1, max: 1, chance: 0.06 },
     { id: ITEM.STRING, min: 1, max: 3, chance: 0.4 },
     { id: ITEM.SADDLE, min: 1, max: 1, chance: 0.25 },
+    // Phase 10: horse armor is loot-only (like vanilla).
+    { id: ITEM.IRON_HORSE_ARMOR, min: 1, max: 1, chance: 0.12 },
   ],
   mineshaft: [
     { id: BLOCK.RAIL, min: 2, max: 6, chance: 0.7 },
@@ -79,6 +81,9 @@ const LOOT_TABLES = {
     { id: ITEM.APPLE, min: 1, max: 2, chance: 0.4 },
     { id: ITEM.REDSTONE, min: 2, max: 5, chance: 0.3 },
     { id: ITEM.DIAMOND, min: 1, max: 2, chance: 0.12 },
+    // Phase 10.
+    { id: ITEM.SADDLE, min: 1, max: 1, chance: 0.15 },
+    { id: ITEM.DIAMOND_HORSE_ARMOR, min: 1, max: 1, chance: 0.08 },
   ],
   fortress: [
     { id: ITEM.GOLD_INGOT, min: 2, max: 4, chance: 0.7 },
@@ -89,6 +94,9 @@ const LOOT_TABLES = {
     // Phase 7: nether wart seeds the brewing loop (also grows in the
     // fortress's soul-sand patch).
     { id: ITEM.NETHER_WART, min: 1, max: 3, chance: 0.6 },
+    // Phase 10.
+    { id: ITEM.SADDLE, min: 1, max: 1, chance: 0.2 },
+    { id: ITEM.GOLDEN_HORSE_ARMOR, min: 1, max: 1, chance: 0.15 },
   ],
 };
 

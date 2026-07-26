@@ -593,3 +593,64 @@ Regressions:
 - [ ] Nether portals still travel both ways (separate timer/cooldown from
       end portals); the Overlord fight is unchanged.
 - [ ] `browsercheck-phase8.mjs` and `browsercheck-phase5b.mjs` stay green.
+
+## Phase 10 — Final polish (SAVE_VERSION 17)
+
+Netherite:
+- [ ] In the nether below y 20, Ancient Debris blocks appear buried in
+      netherrack; an iron pickaxe cannot harvest them, a diamond (or
+      netherite) pickaxe drops the block.
+- [ ] TNT/creeper blasts leave ancient debris (and obsidian) standing.
+- [ ] Smelt debris → Netherite Scrap (+XP); 4 scrap + 4 gold ingots
+      (shapeless) → Netherite Ingot.
+- [ ] Anvil: diamond tool/armor + netherite ingot → the netherite version,
+      keeping enchantments and the remaining-durability RATIO (a half-worn
+      sword upgrades half-worn); costs the flat 2 XP levels.
+- [ ] Netherite tools mine faster than diamond, last longer (2031) and hit
+      harder; netherite armor shows higher armor points than diamond.
+- [ ] Netherite gear repairs in the anvil with netherite ingots.
+
+Map + compass:
+- [ ] 3 sugar cane (row) → 3 paper; 4 iron + redstone → compass; 8 paper
+      around a compass → map.
+- [ ] Right-click with the map: a fullscreen top-down render of the terrain
+      around you (minimap palette, white marker at centre). Esc or a click
+      closes it and re-locks the pointer via the overlay.
+
+Death:
+- [ ] Die with XP levels: the XP bar resets to zero and green orbs worth
+      min(level*7, 100) rain at the death point; they are NOT picked up by
+      the corpse and can be collected on the return trip.
+- [ ] Tamed wolves, saddled/armored horses and iron golems survive the
+      player's death (other mobs still despawn from the field).
+
+Armor durability:
+- [ ] Every equipped armor piece loses 1 durability per mitigated hit
+      (visible as the durability bar in the inventory armor slots).
+- [ ] A piece reaching 0 vanishes with a break sound and "Your armor broke!".
+- [ ] Unbreaking on armor skips durability losses; armor pieces repair in
+      the anvil (combine two, or add the base material).
+
+Saddle + horse armor:
+- [ ] Saddles come from dungeon/village/fortress/stronghold loot, the
+      leatherworker trade, or 3 leather + 2 iron; an unsaddled horse cannot
+      be mounted.
+- [ ] Iron/gold/diamond horse armor is loot-only (dungeon/fortress/
+      stronghold); right-click a horse with it → tinted plate appears and
+      the horse takes visibly less damage per hit.
+- [ ] Saddle + horse armor survive save/reload.
+
+Saplings + bone meal:
+- [ ] Breaking oak/birch/spruce leaves drops the matching sapling ~8% of the
+      time; saplings place only on grass/dirt and pop off like other plants.
+- [ ] A planted sapling grows into the matching tree by itself after a
+      while; bone meal grows it instantly (blocked if the trunk column is
+      obstructed); the grown tree persists through reload.
+- [ ] Bone meal on wheat/carrots/nether wart jumps the crop straight to
+      maturity (was one stage per dose).
+
+Regressions:
+- [ ] `node test/smoke.mjs` prints SMOKE OK; `browsercheck-phase9.mjs` and
+      `browsercheck-phase8.mjs` stay green.
+- [ ] A pre-Phase-10 save (v16 or older) loads cleanly: horses gain the
+      bare-horse default, armor reads as full durability.

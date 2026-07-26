@@ -30,6 +30,15 @@
 
 import { ITEM, BLOCK, BIOME } from './config.js';
 
+// ---- Phase 10: horse armor ----------------------------------------------------
+// Tier key (stored on the mob as `horseArmor`) -> the item that equips it, the
+// fraction of incoming damage it absorbs (damageMob) and the plate colour.
+export const HORSE_ARMOR = {
+  iron:    { item: ITEM.IRON_HORSE_ARMOR,    reduction: 0.20, color: 0xd8d8de },
+  gold:    { item: ITEM.GOLDEN_HORSE_ARMOR,  reduction: 0.28, color: 0xe8c447 },
+  diamond: { item: ITEM.DIAMOND_HORSE_ARMOR, reduction: 0.44, color: 0x54d6c8 },
+};
+
 // Every AI handler key implemented by mobs.js. MOB_DEFS entries must use one
 // of these; mobs.js asserts at construction that it implements them all.
 export const AI_NAMES = [

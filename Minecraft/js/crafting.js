@@ -75,6 +75,9 @@ const SHAPELESS = [
   // ---- Phase 9: the End -----------------------------------------------------------
   // Eye of ender: an ender pearl charged with blaze powder
   { need: { [ITEM.ENDER_PEARL]: 1, [ITEM.BLAZE_POWDER]: 1 }, out: { id: ITEM.EYE_OF_ENDER, count: 1 } },
+  // ---- Phase 10: netherite ----------------------------------------------------------
+  // Netherite ingot: 4 scrap + 4 gold, shapeless (vanilla)
+  { need: { [ITEM.NETHERITE_SCRAP]: 4, [ITEM.GOLD_INGOT]: 4 }, out: { id: ITEM.NETHERITE_INGOT, count: 1 } },
 ];
 
 // Inventory 2x2 recipes. `shape` is [top-left, top-right, bottom-left, bottom-right].
@@ -238,6 +241,16 @@ const SHAPED_3 = [
   // ---- Phase 9: the End -----------------------------------------------------------
   // Beacon: 5 glass around a nether star, on 3 obsidian (vanilla shape)
   { shape: [BLOCK.GLASS, BLOCK.GLASS, BLOCK.GLASS, BLOCK.GLASS, ITEM.NETHER_STAR, BLOCK.GLASS, BLOCK.OBSIDIAN, BLOCK.OBSIDIAN, BLOCK.OBSIDIAN], out: { id: BLOCK.BEACON, count: 1 } },
+  // ---- Phase 10: paper / compass / map / saddle ------------------------------------
+  // Paper: 3 sugar cane in a row (shaped so it cannot shadow the sugar recipe)
+  { shape: [BLOCK.SUGAR_CANE, BLOCK.SUGAR_CANE, BLOCK.SUGAR_CANE, null, null, null, null, null, null], out: { id: ITEM.PAPER, count: 3 } },
+  // Compass: 4 iron around a redstone needle (vanilla shape)
+  { shape: [null, ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, ITEM.REDSTONE, ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, null], out: { id: ITEM.COMPASS, count: 1 } },
+  // Map: 8 paper around a compass (vanilla shape)
+  { shape: [ITEM.PAPER, ITEM.PAPER, ITEM.PAPER, ITEM.PAPER, ITEM.COMPASS, ITEM.PAPER, ITEM.PAPER, ITEM.PAPER, ITEM.PAPER], out: { id: ITEM.MAP, count: 1 } },
+  // Saddle: a leather seat over iron stirrups (vanilla has no recipe; loot
+  // stays the main source, this is the sensible craft the plan allows)
+  { shape: [ITEM.LEATHER, ITEM.LEATHER, ITEM.LEATHER, ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, null, null, null], out: { id: ITEM.SADDLE, count: 1 } },
 ];
 
 function activeSlots(grid, size) {

@@ -207,9 +207,23 @@ function v15to16(save) {
   return save;
 }
 
+// v16 -> v17: Phase 10 final polish. Saved horses gain a `horseArmor` field
+// (null = bare); armor pieces gained durability, but stacks without the field
+// read as full durability everywhere (the tool-stack convention), so armor
+// needs no rewriting. Saplings/netherite/map are ordinary edits and items.
+function v16to17(save) {
+  if (Array.isArray(save.mobs)) {
+    for (const m of save.mobs) {
+      if (m && m.type === 'horse' && m.horseArmor === undefined) m.horseArmor = null;
+    }
+  }
+  save.version = 17;
+  return save;
+}
+
 const MIGRATIONS = {
   7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11, 11: v11to12, 12: v12to13, 13: v13to14,
-  14: v14to15, 15: v15to16,
+  14: v14to15, 15: v15to16, 16: v16to17,
 };
 
 export function migrateSave(save) {

@@ -55,6 +55,9 @@ export class NetherWorld extends World {
             id = BLOCK.BEDROCK;
           } else if (y <= floorH) {
             id = BLOCK.NETHERRACK;
+            // Phase 10: ancient debris — rare, buried below y 20 (fresh salt,
+            // so every other nether voxel regenerates exactly as before).
+            if (y < 20 && this.hash01_3(wx, y, wz, 2101) < 0.006) id = BLOCK.ANCIENT_DEBRIS;
           } else if (y >= ceilH) {
             id = BLOCK.NETHERRACK;
           } else if (y <= LAVA_LEVEL) {

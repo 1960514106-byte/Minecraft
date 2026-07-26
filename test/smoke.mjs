@@ -21,7 +21,10 @@ import {
   itemStackMax, itemMaxDurability, foodValue,
   ENCHANTMENTS, enchantCost, isEnchantable, POTION_EFFECTS, isPotionItem,
   REPAIR_MATERIAL, nextCropStage, isCropBlock, NETHER_WART_STAGES,
+  NETHERITE_UPGRADE, BLAST_RESIST_HARDNESS, toolTier, attackDamage, armorPoints,
+  SAPLING_FOR_LEAVES, SAPLING_DROP_CHANCE, SAPLING_GROW_CHANCE, isSapling,
 } from '../Minecraft/js/config.js';
+import { Survival } from '../Minecraft/js/survival.js';
 import { FluidSim } from '../Minecraft/js/fluids.js';
 import {
   craftResult, craftCost, SHAPELESS, SHAPED_2, SHAPED_3,
@@ -29,7 +32,7 @@ import {
 import { Noise } from '../Minecraft/js/noise.js';
 import {
   MOB_DEFS, AI_NAMES, mobDef, spawnCandidates, weightedPick, rollMobDrops,
-  xpForMob, breedFoodOf,
+  xpForMob, breedFoodOf, HORSE_ARMOR,
 } from '../Minecraft/js/mobdefs.js';
 import { migrateSave } from '../Minecraft/js/storage.js';
 import { getMode, setMode, isCreative, setOnModeChange } from '../Minecraft/js/gamemode.js';
@@ -361,7 +364,7 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 16, 'migrated save version is 16 (v7 chains through the whole ladder)');
+  assert(m.version === 17, 'migrated save version is 17 (v7 chains through the whole ladder)');
   assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
@@ -382,17 +385,17 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 16 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+  assert(v3.version === 17 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
     'v3 save migrates through the whole chain');
 
   // A v8 save gains the mode field, then the fluids/boats defaults.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 16 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+  assert(v8.version === 17 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
     'v8 save upgrades to current with mode survival, ids untouched');
 
   // v9 -> v10: fluids/boats defaults appear, everything else untouched.
   const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
-  assert(v9.version === 16 && v9.mode === 'creative', 'v9 save upgrades to current (mode preserved)');
+  assert(v9.version === 17 && v9.mode === 'creative', 'v9 save upgrades to current (mode preserved)');
   assert(v9.fluids && Array.isArray(v9.fluids.active) && v9.fluids.active.length === 0,
     'v9 -> v10 adds an empty fluids state');
   assert(Array.isArray(v9.boats) && v9.boats.length === 0, 'v9 -> v10 adds an empty boats list');
@@ -404,7 +407,7 @@ function grid(...entries) {
     fluids: { active: ['1,2,3'] }, boats: [{ x: 1, y: 20, z: 3 }],
     mobs: [{ type: 'pig', x: 1, y: 20, z: 3, health: 8, baby: true, growTimer: 5 }],
   });
-  assert(v10.version === 16 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
+  assert(v10.version === 17 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
     'v10 save upgrades to current (fluids/boats preserved)');
   assert(v10.mobs.length === 1 && v10.mobs[0].type === 'pig' && v10.mobs[0].baby === true,
     'v10 -> v11 leaves saved mobs untouched');
@@ -415,14 +418,14 @@ function grid(...entries) {
     version: 11, seed: 1337, mobs: [{ type: 'slime', size: 2, x: 0, z: 0 }],
     redstone: { levers: ['1,2,3'], pistons: {}, repeaters: {} },
   });
-  assert(v11.version === 16 && v11.mobs[0].size === 2, 'v11 save upgrades to current');
+  assert(v11.version === 17 && v11.mobs[0].size === 2, 'v11 save upgrades to current');
   assert(v11.dispensers && Object.keys(v11.dispensers).length === 0,
     'v11 -> v12 adds an empty dispensers map');
   assert(v11.hoppers && Object.keys(v11.hoppers).length === 0,
     'v11 -> v12 adds an empty hoppers map');
   assert(v11.redstone.levers[0] === '1,2,3', 'v11 -> v12 leaves redstone state untouched');
   const v12 = migrateSave({ version: 12, seed: 1337, hoppers: { 'N|1,2,3': { dir: [0, -1, 0], slots: [] } } });
-  assert(v12.version === 16 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to current with hoppers intact');
+  assert(v12.version === 17 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to current with hoppers intact');
 }
 
 // ---- Phase 3: buckets, boats, fishing, fluids ----------------------------------------------
@@ -1198,7 +1201,7 @@ function grid(...entries) {
 // ---- Phase 7: migration v12 -> v13 ----------------------------------------------------------
 {
   const v12b = migrateSave({ version: 12, seed: 1337, hoppers: {}, dispensers: {} });
-  assert(v12b.version === 16, 'v12 save upgrades to current');
+  assert(v12b.version === 17, 'v12 save upgrades to current');
   assert(Array.isArray(v12b.effects) && v12b.effects.length === 0, 'v12 -> v13 adds empty effects');
   assert(v12b.brewingStands && Object.keys(v12b.brewingStands).length === 0,
     'v12 -> v13 adds empty brewingStands');
@@ -1207,7 +1210,7 @@ function grid(...entries) {
     effects: [{ id: 'speed', amp: 2, t: 30 }],
     brewingStands: { '1,2,3': { bottles: [null, null, null], charges: 5, progress: 0 } },
   });
-  assert(v13.version === 16 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
+  assert(v13.version === 17 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
     'v13 save chains into current');
 }
 
@@ -1346,10 +1349,10 @@ function grid(...entries) {
 // ---- Phase 5: migration v13 -> v14 -------------------------------------------------------------
 {
   const v13g = migrateSave({ version: 13, seed: 1337, effects: [], brewingStands: {} });
-  assert(v13g.version === 16 && v13g.genVersion === 1,
+  assert(v13g.version === 17 && v13g.genVersion === 1,
     'v13 -> v14 stamps genVersion 1 on old saves (chain ends at 16)');
   const v14 = migrateSave({ version: 14, seed: 1337, genVersion: 2 });
-  assert(v14.version === 16 && v14.genVersion === 2, 'v14 save keeps genVersion 2 and chains to 16');
+  assert(v14.version === 17 && v14.genVersion === 2, 'v14 save keeps genVersion 2 and chains to current');
 }
 
 // ---- Phase 8: villager professions + leveled trades ---------------------------------------
@@ -1481,7 +1484,7 @@ function grid(...entries) {
     'villager with existing trade fields is untouched');
   assert(zom.profession === undefined, 'non-villagers gain no profession');
   const v15 = migrateSave({ version: 15, seed: 1337, genVersion: 2 });
-  assert(v15.version === 16, 'v15 save chains to 16');
+  assert(v15.version === 17, 'v15 save chains to current');
 }
 
 // ---- Phase 9: the End — registry, recipes, stronghold, migration ---------------------------
@@ -1592,7 +1595,7 @@ function grid(...entries) {
 
   // Migration v15 -> v16: dims.end bucket + dragonDefeated default.
   const migrated = migrateSave({ version: 15, seed: 1337, genVersion: 2 });
-  assert(migrated.version === 16, 'v15 save migrates to v16');
+  assert(migrated.version === 17, 'v15 save migrates through v16 to current');
   assert(migrated.dims && typeof migrated.dims.end === 'object', 'migration adds dims.end');
   assert(migrated.dragonDefeated === false, 'migration defaults dragonDefeated to false');
   const kept = migrateSave({
@@ -1602,7 +1605,179 @@ function grid(...entries) {
   assert(kept.dragonDefeated === true && kept.dims.end.edits['0,0']['1,60,1'] === BLOCK.END_STONE,
     'migration preserves existing dims.end data + victory flag');
   const v16 = migrateSave({ version: 16, seed: 1337 });
-  assert(v16.version === 16, 'v16 save is untouched');
+  assert(v16.version === 17, 'v16 save chains through the Phase 10 step');
+}
+
+// ---- Phase 10: netherite, map, horse armor, saplings, armor durability --------------------
+{
+  // Registry: new block + item ids sit in the reserved ranges.
+  assert(BLOCK.ANCIENT_DEBRIS === 140 && BLOCKS[BLOCK.ANCIENT_DEBRIS], 'ANCIENT_DEBRIS defined at 140');
+  for (const b of ['SAPLING_OAK', 'SAPLING_BIRCH', 'SAPLING_SPRUCE']) {
+    assert(BLOCK[b] >= 141 && BLOCK[b] <= 143 && blockModel(BLOCK[b]) === 'cross',
+      `BLOCK.${b} defined as a cross model`);
+  }
+  for (const it of ['NETHERITE_SCRAP', 'NETHERITE_INGOT', 'NETHERITE_PICKAXE', 'NETHERITE_SWORD',
+    'NETHERITE_HELMET', 'NETHERITE_BOOTS', 'MAP', 'COMPASS', 'PAPER', 'IRON_HORSE_ARMOR',
+    'GOLDEN_HORSE_ARMOR', 'DIAMOND_HORSE_ARMOR']) {
+    assert(ITEM[it] >= 1121 && ITEMS[ITEM[it]], `ITEM.${it} defined`);
+  }
+
+  // Netherite tier: capability 5, faster and tougher than diamond, hits harder.
+  assert(toolTier(ITEM.NETHERITE_PICKAXE) === 5 && toolTier(ITEM.DIAMOND_PICKAXE) === 4,
+    'netherite pickaxe is tier 5');
+  assert(breakDuration(BLOCK.STONE, ITEM.NETHERITE_PICKAXE) < breakDuration(BLOCK.STONE, ITEM.DIAMOND_PICKAXE),
+    'netherite mines stone faster than diamond');
+  assert(itemMaxDurability(ITEM.NETHERITE_PICKAXE) > itemMaxDurability(ITEM.DIAMOND_PICKAXE),
+    'netherite outlasts diamond');
+  assert(attackDamage(ITEM.NETHERITE_SWORD) > attackDamage(ITEM.DIAMOND_SWORD),
+    'netherite sword hits harder than diamond');
+  assert(armorPoints(ITEM.NETHERITE_CHEST) > armorPoints(ITEM.DIAMOND_CHEST),
+    'netherite chestplate protects more than diamond');
+
+  // Ancient debris: diamond-gated, smelts to scrap, resists blasts.
+  assert(blockDrop(BLOCK.ANCIENT_DEBRIS, ITEM.IRON_PICKAXE).length === 0,
+    'iron pickaxe cannot harvest ancient debris');
+  assert(blockDrop(BLOCK.ANCIENT_DEBRIS, ITEM.DIAMOND_PICKAXE)[0].id === BLOCK.ANCIENT_DEBRIS,
+    'diamond pickaxe harvests the debris block');
+  assert(SMELTING[BLOCK.ANCIENT_DEBRIS].id === ITEM.NETHERITE_SCRAP,
+    'ancient debris smelts to netherite scrap');
+  assert(BLOCKS[BLOCK.ANCIENT_DEBRIS].hardness >= BLAST_RESIST_HARDNESS &&
+    BLOCKS[BLOCK.OBSIDIAN].hardness >= BLAST_RESIST_HARDNESS &&
+    BLOCKS[BLOCK.STONE].hardness < BLAST_RESIST_HARDNESS,
+    'blast resistance covers debris + obsidian but not stone');
+
+  // Recipes: ingot (shapeless), paper, compass, map, saddle.
+  const ingot = craftResult(grid(
+    [0, ITEM.NETHERITE_SCRAP], [1, ITEM.NETHERITE_SCRAP], [2, ITEM.NETHERITE_SCRAP],
+    [3, ITEM.NETHERITE_SCRAP], [4, ITEM.GOLD_INGOT], [5, ITEM.GOLD_INGOT],
+    [6, ITEM.GOLD_INGOT], [7, ITEM.GOLD_INGOT],
+  ), 3);
+  assert(ingot && ingot.id === ITEM.NETHERITE_INGOT, '4 scrap + 4 gold -> netherite ingot');
+  const paper = craftResult(grid(
+    [0, BLOCK.SUGAR_CANE], [1, BLOCK.SUGAR_CANE], [2, BLOCK.SUGAR_CANE],
+  ), 3);
+  assert(paper && paper.id === ITEM.PAPER && paper.count === 3, '3 sugar cane -> 3 paper');
+  const oneCane = craftResult(grid([0, BLOCK.SUGAR_CANE]), 2);
+  assert(oneCane && oneCane.id === ITEM.SUGAR, '1 cane still resolves to sugar (no shadowing)');
+  const compass = craftResult(grid(
+    [1, ITEM.IRON_INGOT], [3, ITEM.IRON_INGOT], [4, ITEM.REDSTONE], [5, ITEM.IRON_INGOT], [7, ITEM.IRON_INGOT],
+  ), 3);
+  assert(compass && compass.id === ITEM.COMPASS, '4 iron + redstone -> compass');
+  const mapOut = craftResult(grid(
+    [0, ITEM.PAPER], [1, ITEM.PAPER], [2, ITEM.PAPER],
+    [3, ITEM.PAPER], [4, ITEM.COMPASS], [5, ITEM.PAPER],
+    [6, ITEM.PAPER], [7, ITEM.PAPER], [8, ITEM.PAPER],
+  ), 3);
+  assert(mapOut && mapOut.id === ITEM.MAP, '8 paper + compass -> map');
+  const saddle = craftResult(grid(
+    [0, ITEM.LEATHER], [1, ITEM.LEATHER], [2, ITEM.LEATHER],
+    [3, ITEM.IRON_INGOT], [5, ITEM.IRON_INGOT],
+  ), 3);
+  assert(saddle && saddle.id === ITEM.SADDLE, '3 leather + 2 iron -> saddle');
+
+  // Anvil smithing: the upgrade map is total over diamond gear and keeps
+  // enchantments plus the wear RATIO across the tier jump.
+  const upgradeKeys = Object.keys(NETHERITE_UPGRADE).map(Number);
+  assert(upgradeKeys.length === 8 && upgradeKeys.every((id) => defined(id) && defined(NETHERITE_UPGRADE[id])),
+    'NETHERITE_UPGRADE covers the 8 diamond pieces with defined outputs');
+  const up = anvilResult(
+    { id: ITEM.DIAMOND_SWORD, count: 1, durability: 780, enchantments: { sharpness: 3 } },
+    { id: ITEM.NETHERITE_INGOT, count: 1 },
+  );
+  assert(up && up.result.id === ITEM.NETHERITE_SWORD, 'diamond sword + ingot -> netherite sword');
+  assert(up.result.enchantments && up.result.enchantments.sharpness === 3,
+    'smithing keeps the enchantments');
+  const expectDur = Math.round((780 / itemMaxDurability(ITEM.DIAMOND_SWORD)) * itemMaxDurability(ITEM.NETHERITE_SWORD));
+  assert(up.result.durability === expectDur && up.consumeA === 1 && up.consumeB === 1,
+    `smithing keeps the durability ratio (${up.result.durability} vs ${expectDur})`);
+  const upSwapped = anvilResult(
+    { id: ITEM.NETHERITE_INGOT, count: 1 },
+    { id: ITEM.DIAMOND_HELMET, count: 1 },
+  );
+  assert(upSwapped && upSwapped.result.id === ITEM.NETHERITE_HELMET,
+    'smithing accepts either slot order (armor too)');
+  const repairNeth = anvilResult(
+    { id: ITEM.NETHERITE_SWORD, count: 1, durability: 100 },
+    { id: ITEM.NETHERITE_INGOT, count: 4 },
+  );
+  assert(repairNeth && repairNeth.result.id === ITEM.NETHERITE_SWORD &&
+    repairNeth.result.durability > 100,
+    'netherite gear still repairs with ingots (rule b unaffected)');
+
+  // Armor durability: every armor piece wears, netherite the slowest.
+  for (const it of ['LEATHER_HELMET', 'IRON_CHEST', 'GOLDEN_LEGS', 'DIAMOND_BOOTS', 'NETHERITE_CHEST']) {
+    assert(itemMaxDurability(ITEM[it]) > 0, `ITEM.${it} has durability`);
+  }
+  assert(REPAIR_MATERIAL[ITEM.DIAMOND_CHEST] === ITEM.DIAMOND &&
+    REPAIR_MATERIAL[ITEM.NETHERITE_BOOTS] === ITEM.NETHERITE_INGOT &&
+    REPAIR_MATERIAL[ITEM.LEATHER_HELMET] === ITEM.LEATHER,
+    'armor repairs with its base material');
+  {
+    // Survival is three-free: exercise armor wear + breakage + the death hook.
+    setMode('survival');
+    const s = new Survival(null);
+    s.armor.chest = { id: ITEM.IRON_CHEST, count: 1 };
+    s.damage(6, 'Zombie bite');
+    assert(s.armor.chest.durability === itemMaxDurability(ITEM.IRON_CHEST) - 1,
+      'a mitigated hit wears the chestplate by 1');
+    let broke = null;
+    s.onArmorBreak = (slot, id) => { broke = { slot, id }; };
+    s.armor.chest.durability = 1;
+    s.damage(6, 'Zombie bite');
+    assert(s.armor.chest === null && broke && broke.slot === 'chest' && broke.id === ITEM.IRON_CHEST,
+      'a piece at 0 durability vanishes through onArmorBreak');
+    s.damage(2, 'Starving');
+    assert(s.armor.head === null, 'starvation damage never wears armor');
+    let died = false;
+    s.onDeath = () => { died = true; };
+    s.damage(999, 'Test blow');
+    assert(!s.alive && died, 'lethal damage fires the onDeath hook');
+  }
+
+  // Horse armor registry: tier -> defined item, sane reduction, colours.
+  for (const [tier, def] of Object.entries(HORSE_ARMOR)) {
+    assert(defined(def.item) && ITEMS[def.item].horseArmor === tier,
+      `HORSE_ARMOR.${tier} matches its item`);
+    assert(def.reduction > 0 && def.reduction < 1, `HORSE_ARMOR.${tier} reduction in (0,1)`);
+    assert(Number.isInteger(def.color), `HORSE_ARMOR.${tier} has a plate colour`);
+  }
+  // Loot-only distribution: dungeon/fortress/stronghold roll armor + saddles.
+  assert(rollLoot('dungeon', () => 0).some((s) => s && s.id === ITEM.IRON_HORSE_ARMOR),
+    'dungeon loot can roll iron horse armor');
+  const fortLoot = rollLoot('fortress', () => 0);
+  assert(fortLoot.some((s) => s && s.id === ITEM.GOLDEN_HORSE_ARMOR) &&
+    fortLoot.some((s) => s && s.id === ITEM.SADDLE),
+    'fortress loot can roll golden horse armor + saddle');
+  const shLoot = rollLoot('stronghold', () => 0);
+  assert(shLoot.some((s) => s && s.id === ITEM.DIAMOND_HORSE_ARMOR) &&
+    shLoot.some((s) => s && s.id === ITEM.SADDLE),
+    'stronghold loot can roll diamond horse armor + saddle');
+
+  // Saplings: leaf mapping, drop/grow constants, helper.
+  assert(SAPLING_FOR_LEAVES[BLOCK.LEAVES] === BLOCK.SAPLING_OAK &&
+    SAPLING_FOR_LEAVES[BLOCK.BIRCH_LEAVES] === BLOCK.SAPLING_BIRCH &&
+    SAPLING_FOR_LEAVES[BLOCK.SPRUCE_LEAVES] === BLOCK.SAPLING_SPRUCE,
+    'each leaf type maps to its sapling');
+  assert(SAPLING_DROP_CHANCE > 0 && SAPLING_DROP_CHANCE < 1 &&
+    SAPLING_GROW_CHANCE > 0 && SAPLING_GROW_CHANCE < 1,
+    'sapling chances are probabilities');
+  assert(isSapling(BLOCK.SAPLING_OAK) && !isSapling(BLOCK.LEAVES), 'isSapling helper');
+  assert(blockDrop(BLOCK.SAPLING_OAK)[0].id === BLOCK.SAPLING_OAK, 'a broken sapling drops itself');
+
+  // Migration v16 -> v17: horses gain the horseArmor field, equipped kept.
+  const m17 = migrateSave({
+    version: 16, seed: 1337,
+    mobs: [
+      { type: 'horse', x: 1, y: 30, z: 2, health: 26, saddled: true },
+      { type: 'horse', x: 5, y: 30, z: 6, health: 26, horseArmor: 'gold' },
+      { type: 'pig', x: 0, y: 30, z: 0, health: 8 },
+    ],
+  });
+  assert(m17.version === 17, 'v16 save migrates to v17');
+  assert(m17.mobs[0].horseArmor === null && m17.mobs[0].saddled === true,
+    'bare horse gains horseArmor: null, saddle kept');
+  assert(m17.mobs[1].horseArmor === 'gold', 'equipped horse armor preserved');
+  assert(m17.mobs[2].horseArmor === undefined, 'non-horses gain no field');
 }
 
 // ---- Noise determinism ------------------------------------------------------------------

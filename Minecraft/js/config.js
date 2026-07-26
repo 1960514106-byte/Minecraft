@@ -174,6 +174,13 @@ export const BLOCK = {
   END_STONE: 137,          // the End island material
   DRAGON_EGG: 138,         // victory trophy; right-click teleports it
   BEACON: 139,             // nether-star sink: buffs players near a 3x3 base
+  // ---- Phase 10: final polish (140+) ---------------------------------------------
+  ANCIENT_DEBRIS: 140,     // rare nether ore (y<20); smelts to netherite scrap
+  // Saplings: cross-model plants on grass/dirt; grow into the matching tree
+  // (random tick in main.js, instantly with bone meal via World.growTree).
+  SAPLING_OAK: 141,
+  SAPLING_BIRCH: 142,
+  SAPLING_SPRUCE: 143,
 };
 
 // Wool blocks in vanilla colour order, plus the RGB used by the texture
@@ -539,6 +546,32 @@ export const TILES = {
   DRAGON_EGG:     257,
   BEACON:         258,
   EYE_OF_ENDER:   259,   // item icon
+  // ---- Phase 10 (260+): netherite, map, horse armor, saplings -----------------
+  // --- row 65 (260..263) ---
+  ANCIENT_DEBRIS: 260,
+  NETHERITE_SCRAP: 261,
+  NETHERITE_INGOT: 262,
+  NETHERITE_PICKAXE: 263,
+  // --- row 66 (264..267) ---
+  NETHERITE_AXE:  264,
+  NETHERITE_SHOVEL: 265,
+  NETHERITE_SWORD: 266,
+  NETHERITE_HELMET: 267,
+  // --- row 67 (268..271) ---
+  NETHERITE_CHEST: 268,
+  NETHERITE_LEGS: 269,
+  NETHERITE_BOOTS: 270,
+  MAP:            271,
+  // --- row 68 (272..275) ---
+  COMPASS:        272,
+  PAPER:          273,
+  IRON_HORSE_ARMOR: 274,
+  GOLDEN_HORSE_ARMOR: 275,
+  // --- row 69 (276..279) ---
+  DIAMOND_HORSE_ARMOR: 276,
+  SAPLING_OAK:    277,
+  SAPLING_BIRCH:  278,
+  SAPLING_SPRUCE: 279,
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -676,6 +709,23 @@ export const ITEM = {
   LAPIS: 1119,
   // ---- Phase 9 (1120+): the End ----------------------------------------------------
   EYE_OF_ENDER: 1120,
+  // ---- Phase 10 (1121+): netherite, map, horse armor ---------------------------------
+  NETHERITE_SCRAP: 1121,
+  NETHERITE_INGOT: 1122,
+  NETHERITE_PICKAXE: 1123,
+  NETHERITE_AXE: 1124,
+  NETHERITE_SHOVEL: 1125,
+  NETHERITE_SWORD: 1126,
+  NETHERITE_HELMET: 1127,
+  NETHERITE_CHEST: 1128,
+  NETHERITE_LEGS: 1129,
+  NETHERITE_BOOTS: 1130,
+  MAP: 1131,
+  COMPASS: 1132,
+  PAPER: 1133,
+  IRON_HORSE_ARMOR: 1134,
+  GOLDEN_HORSE_ARMOR: 1135,
+  DIAMOND_HORSE_ARMOR: 1136,
 };
 
 // Per-block definition. `top`/`bottom`/`side` are atlas tile indices.
@@ -880,6 +930,13 @@ export const BLOCKS = {
   // Beacon: glass-like glowing cube. Effect logic (3x3 mineral base scan,
   // Speed/Regeneration auras, the light beam) lives in main.js.
   [BLOCK.BEACON]: { name: 'Beacon', top: TILES.BEACON, bottom: TILES.OBSIDIAN, side: TILES.BEACON, solid: true, transparent: true, hardness: 3.0, tool: 'pickaxe', light: 15 },
+  // ---- Phase 10: netherite + saplings ---------------------------------------------
+  // Ancient debris: needs a diamond pickaxe; hardness >= BLAST_RESIST_HARDNESS
+  // makes it (and obsidian) survive explosions — see explodeAt in main.js.
+  [BLOCK.ANCIENT_DEBRIS]: { name: 'Ancient Debris', top: TILES.ANCIENT_DEBRIS, bottom: TILES.ANCIENT_DEBRIS, side: TILES.ANCIENT_DEBRIS, solid: true, transparent: false, hardness: 6.0, tool: 'pickaxe', minTier: 4 },
+  [BLOCK.SAPLING_OAK]: { name: 'Oak Sapling', top: TILES.SAPLING_OAK, bottom: TILES.SAPLING_OAK, side: TILES.SAPLING_OAK, solid: false, transparent: true, hardness: 0.01, model: 'cross' },
+  [BLOCK.SAPLING_BIRCH]: { name: 'Birch Sapling', top: TILES.SAPLING_BIRCH, bottom: TILES.SAPLING_BIRCH, side: TILES.SAPLING_BIRCH, solid: false, transparent: true, hardness: 0.01, model: 'cross' },
+  [BLOCK.SAPLING_SPRUCE]: { name: 'Spruce Sapling', top: TILES.SAPLING_SPRUCE, bottom: TILES.SAPLING_SPRUCE, side: TILES.SAPLING_SPRUCE, solid: false, transparent: true, hardness: 0.01, model: 'cross' },
 };
 
 // Blocks selectable in the hotbar (1..N keys), in order.
@@ -921,27 +978,29 @@ export const ITEMS = {
   // Legacy wool item (pre-Phase-2 saves): kept as an alias that places white
   // wool so old stacks stay usable. Sheep now drop BLOCK.WOOL_WHITE directly.
   [ITEM.WOOL]: { name: 'Wool', tile: TILES.WOOL, placeable: BLOCK.WOOL_WHITE },
-  [ITEM.LEATHER_HELMET]: { name: 'Leather Cap', tile: TILES.LEATHER_HELMET, stack: 1, armor: 2, armorSlot: 'head' },
-  [ITEM.LEATHER_CHEST]: { name: 'Leather Tunic', tile: TILES.LEATHER_CHEST, stack: 1, armor: 3, armorSlot: 'chest' },
-  [ITEM.IRON_HELMET]: { name: 'Iron Helmet', tile: TILES.IRON_HELMET, stack: 1, armor: 4, armorSlot: 'head' },
-  [ITEM.IRON_CHEST]: { name: 'Iron Chestplate', tile: TILES.IRON_CHEST, stack: 1, armor: 6, armorSlot: 'chest' },
+  // Phase 10: armor pieces wear like tools — 1 durability per absorbed hit
+  // (survival.js), vanilla point budgets, broken pieces vanish.
+  [ITEM.LEATHER_HELMET]: { name: 'Leather Cap', tile: TILES.LEATHER_HELMET, stack: 1, armor: 2, armorSlot: 'head', durability: 55 },
+  [ITEM.LEATHER_CHEST]: { name: 'Leather Tunic', tile: TILES.LEATHER_CHEST, stack: 1, armor: 3, armorSlot: 'chest', durability: 80 },
+  [ITEM.IRON_HELMET]: { name: 'Iron Helmet', tile: TILES.IRON_HELMET, stack: 1, armor: 4, armorSlot: 'head', durability: 165 },
+  [ITEM.IRON_CHEST]: { name: 'Iron Chestplate', tile: TILES.IRON_CHEST, stack: 1, armor: 6, armorSlot: 'chest', durability: 240 },
   [ITEM.IRON_PICKAXE]: { name: 'Iron Pickaxe', tile: TILES.IRON_PICKAXE, tool: 'pickaxe', tier: 3, stack: 1, durability: 250 },
   [ITEM.IRON_AXE]: { name: 'Iron Axe', tile: TILES.IRON_AXE, tool: 'axe', tier: 3, stack: 1, durability: 250 },
   [ITEM.IRON_SHOVEL]: { name: 'Iron Shovel', tile: TILES.IRON_SHOVEL, tool: 'shovel', tier: 3, stack: 1, durability: 250 },
   [ITEM.IRON_SWORD]: { name: 'Iron Sword', tile: TILES.IRON_SWORD, stack: 1, damage: 10, durability: 250 },
-  [ITEM.LEATHER_LEGS]: { name: 'Leather Pants', tile: TILES.LEATHER_LEGS, stack: 1, armor: 2, armorSlot: 'legs' },
-  [ITEM.LEATHER_BOOTS]: { name: 'Leather Boots', tile: TILES.LEATHER_BOOTS, stack: 1, armor: 1, armorSlot: 'feet' },
-  [ITEM.IRON_LEGS]: { name: 'Iron Leggings', tile: TILES.IRON_LEGS, stack: 1, armor: 5, armorSlot: 'legs' },
-  [ITEM.IRON_BOOTS]: { name: 'Iron Boots', tile: TILES.IRON_BOOTS, stack: 1, armor: 2, armorSlot: 'feet' },
+  [ITEM.LEATHER_LEGS]: { name: 'Leather Pants', tile: TILES.LEATHER_LEGS, stack: 1, armor: 2, armorSlot: 'legs', durability: 75 },
+  [ITEM.LEATHER_BOOTS]: { name: 'Leather Boots', tile: TILES.LEATHER_BOOTS, stack: 1, armor: 1, armorSlot: 'feet', durability: 65 },
+  [ITEM.IRON_LEGS]: { name: 'Iron Leggings', tile: TILES.IRON_LEGS, stack: 1, armor: 5, armorSlot: 'legs', durability: 225 },
+  [ITEM.IRON_BOOTS]: { name: 'Iron Boots', tile: TILES.IRON_BOOTS, stack: 1, armor: 2, armorSlot: 'feet', durability: 195 },
   [ITEM.DIAMOND]: { name: 'Diamond', tile: TILES.DIAMOND },
   [ITEM.DIAMOND_PICKAXE]: { name: 'Diamond Pickaxe', tile: TILES.DIAMOND_PICKAXE, tool: 'pickaxe', tier: 4, stack: 1, durability: 1561 },
   [ITEM.DIAMOND_AXE]: { name: 'Diamond Axe', tile: TILES.DIAMOND_AXE, tool: 'axe', tier: 4, stack: 1, durability: 1561 },
   [ITEM.DIAMOND_SHOVEL]: { name: 'Diamond Shovel', tile: TILES.DIAMOND_SHOVEL, tool: 'shovel', tier: 4, stack: 1, durability: 1561 },
   [ITEM.DIAMOND_SWORD]: { name: 'Diamond Sword', tile: TILES.DIAMOND_SWORD, stack: 1, damage: 13, durability: 1561 },
-  [ITEM.DIAMOND_HELMET]: { name: 'Diamond Helmet', tile: TILES.DIAMOND_HELMET, stack: 1, armor: 5, armorSlot: 'head' },
-  [ITEM.DIAMOND_CHEST]: { name: 'Diamond Chestplate', tile: TILES.DIAMOND_CHEST, stack: 1, armor: 8, armorSlot: 'chest' },
-  [ITEM.DIAMOND_LEGS]: { name: 'Diamond Leggings', tile: TILES.DIAMOND_LEGS, stack: 1, armor: 6, armorSlot: 'legs' },
-  [ITEM.DIAMOND_BOOTS]: { name: 'Diamond Boots', tile: TILES.DIAMOND_BOOTS, stack: 1, armor: 3, armorSlot: 'feet' },
+  [ITEM.DIAMOND_HELMET]: { name: 'Diamond Helmet', tile: TILES.DIAMOND_HELMET, stack: 1, armor: 5, armorSlot: 'head', durability: 363 },
+  [ITEM.DIAMOND_CHEST]: { name: 'Diamond Chestplate', tile: TILES.DIAMOND_CHEST, stack: 1, armor: 8, armorSlot: 'chest', durability: 528 },
+  [ITEM.DIAMOND_LEGS]: { name: 'Diamond Leggings', tile: TILES.DIAMOND_LEGS, stack: 1, armor: 6, armorSlot: 'legs', durability: 495 },
+  [ITEM.DIAMOND_BOOTS]: { name: 'Diamond Boots', tile: TILES.DIAMOND_BOOTS, stack: 1, armor: 3, armorSlot: 'feet', durability: 429 },
   [ITEM.TORCH]: { name: 'Torch', tile: TILES.TORCH_ITEM, placeable: BLOCK.TORCH },
   [ITEM.DOOR]: { name: 'Door', tile: TILES.DOOR_ITEM, placeable: BLOCK.DOOR_BOTTOM },
   [ITEM.LADDER]: { name: 'Ladder', tile: TILES.LADDER_ITEM, placeable: BLOCK.LADDER },
@@ -980,10 +1039,10 @@ export const ITEMS = {
   [ITEM.GOLDEN_SHOVEL]: { name: 'Golden Shovel', tile: TILES.GOLDEN_SHOVEL, tool: 'shovel', tier: 2, speedTier: 6, stack: 1, durability: 32 },
   [ITEM.GOLDEN_SWORD]: { name: 'Golden Sword', tile: TILES.GOLDEN_SWORD, stack: 1, damage: 4, durability: 32 },
   [ITEM.GOLDEN_HOE]: { name: 'Golden Hoe', tile: TILES.GOLDEN_HOE, tool: 'hoe', tier: 2, speedTier: 6, stack: 1, durability: 32 },
-  [ITEM.GOLDEN_HELMET]: { name: 'Golden Helmet', tile: TILES.GOLDEN_HELMET, stack: 1, armor: 2, armorSlot: 'head' },
-  [ITEM.GOLDEN_CHEST]: { name: 'Golden Chestplate', tile: TILES.GOLDEN_CHEST, stack: 1, armor: 5, armorSlot: 'chest' },
-  [ITEM.GOLDEN_LEGS]: { name: 'Golden Leggings', tile: TILES.GOLDEN_LEGS, stack: 1, armor: 3, armorSlot: 'legs' },
-  [ITEM.GOLDEN_BOOTS]: { name: 'Golden Boots', tile: TILES.GOLDEN_BOOTS, stack: 1, armor: 1, armorSlot: 'feet' },
+  [ITEM.GOLDEN_HELMET]: { name: 'Golden Helmet', tile: TILES.GOLDEN_HELMET, stack: 1, armor: 2, armorSlot: 'head', durability: 77 },
+  [ITEM.GOLDEN_CHEST]: { name: 'Golden Chestplate', tile: TILES.GOLDEN_CHEST, stack: 1, armor: 5, armorSlot: 'chest', durability: 112 },
+  [ITEM.GOLDEN_LEGS]: { name: 'Golden Leggings', tile: TILES.GOLDEN_LEGS, stack: 1, armor: 3, armorSlot: 'legs', durability: 105 },
+  [ITEM.GOLDEN_BOOTS]: { name: 'Golden Boots', tile: TILES.GOLDEN_BOOTS, stack: 1, armor: 1, armorSlot: 'feet', durability: 91 },
   // Golden carrot: future potion ingredient; crafted from 1 gold ingot + carrot
   // (no gold nuggets exist yet).
   [ITEM.GOLDEN_CARROT]: { name: 'Golden Carrot', tile: TILES.GOLDEN_CARROT, food: 6 },
@@ -1038,6 +1097,32 @@ export const ITEMS = {
   // Right-click in the open: flies toward the stronghold, then drops (80%) or
   // shatters. Right-click on an empty END_PORTAL_FRAME: inserts the eye.
   [ITEM.EYE_OF_ENDER]: { name: 'Eye of Ender', tile: TILES.EYE_OF_ENDER, stack: 16 },
+  // ---- Phase 10: netherite ------------------------------------------------------------
+  // Tier 5: mines everything diamond can, faster (speed derives from the tier),
+  // with roughly 30% more durability. Upgrading happens at the ANVIL: diamond
+  // gear + one netherite ingot (see NETHERITE_UPGRADE / anvil.js).
+  [ITEM.NETHERITE_SCRAP]: { name: 'Netherite Scrap', tile: TILES.NETHERITE_SCRAP },
+  [ITEM.NETHERITE_INGOT]: { name: 'Netherite Ingot', tile: TILES.NETHERITE_INGOT },
+  [ITEM.NETHERITE_PICKAXE]: { name: 'Netherite Pickaxe', tile: TILES.NETHERITE_PICKAXE, tool: 'pickaxe', tier: 5, stack: 1, durability: 2031 },
+  [ITEM.NETHERITE_AXE]: { name: 'Netherite Axe', tile: TILES.NETHERITE_AXE, tool: 'axe', tier: 5, stack: 1, durability: 2031 },
+  [ITEM.NETHERITE_SHOVEL]: { name: 'Netherite Shovel', tile: TILES.NETHERITE_SHOVEL, tool: 'shovel', tier: 5, stack: 1, durability: 2031 },
+  [ITEM.NETHERITE_SWORD]: { name: 'Netherite Sword', tile: TILES.NETHERITE_SWORD, stack: 1, damage: 15, durability: 2031 },
+  [ITEM.NETHERITE_HELMET]: { name: 'Netherite Helmet', tile: TILES.NETHERITE_HELMET, stack: 1, armor: 6, armorSlot: 'head', durability: 407 },
+  [ITEM.NETHERITE_CHEST]: { name: 'Netherite Chestplate', tile: TILES.NETHERITE_CHEST, stack: 1, armor: 9, armorSlot: 'chest', durability: 592 },
+  [ITEM.NETHERITE_LEGS]: { name: 'Netherite Leggings', tile: TILES.NETHERITE_LEGS, stack: 1, armor: 7, armorSlot: 'legs', durability: 555 },
+  [ITEM.NETHERITE_BOOTS]: { name: 'Netherite Boots', tile: TILES.NETHERITE_BOOTS, stack: 1, armor: 4, armorSlot: 'feet', durability: 481 },
+  // ---- Phase 10: map + compass -----------------------------------------------------------
+  // Using the map (right-click) opens a fullscreen top-down render of the
+  // terrain around the player (main.js overlay, minimap colour table).
+  [ITEM.MAP]: { name: 'Map', tile: TILES.MAP, stack: 1 },
+  [ITEM.COMPASS]: { name: 'Compass', tile: TILES.COMPASS, stack: 1 },
+  [ITEM.PAPER]: { name: 'Paper', tile: TILES.PAPER },
+  // ---- Phase 10: horse armor (loot-only, like vanilla) --------------------------------------
+  // `horseArmor` names the tier key in HORSE_ARMOR (mobdefs.js) that carries
+  // the damage reduction + plate colour applied to the wearing horse.
+  [ITEM.IRON_HORSE_ARMOR]: { name: 'Iron Horse Armor', tile: TILES.IRON_HORSE_ARMOR, stack: 1, horseArmor: 'iron' },
+  [ITEM.GOLDEN_HORSE_ARMOR]: { name: 'Golden Horse Armor', tile: TILES.GOLDEN_HORSE_ARMOR, stack: 1, horseArmor: 'gold' },
+  [ITEM.DIAMOND_HORSE_ARMOR]: { name: 'Diamond Horse Armor', tile: TILES.DIAMOND_HORSE_ARMOR, stack: 1, horseArmor: 'diamond' },
 };
 
 // True if an item ID refers to a placeable block (vs. an item-only thing).
@@ -1102,11 +1187,15 @@ export function stackEnchant(stack, key) {
 
 export function attackDamage(itemId = null) {
   switch (itemId) {
+    case ITEM.NETHERITE_SWORD: return 15;
     case ITEM.DIAMOND_SWORD: return 13;
+    case ITEM.NETHERITE_AXE: return 12;
     case ITEM.DIAMOND_AXE: return 11;
     case ITEM.IRON_SWORD: return 10;
     case ITEM.IRON_AXE: return 8;
+    case ITEM.NETHERITE_PICKAXE: return 9;
     case ITEM.DIAMOND_PICKAXE: return 8;
+    case ITEM.NETHERITE_SHOVEL: return 8;
     case ITEM.STONE_SWORD: return 7;
     case ITEM.DIAMOND_SHOVEL: return 7;
     case ITEM.IRON_PICKAXE: return 6;
@@ -1143,6 +1232,7 @@ export const SMELTING = {
   [BLOCK.NETHERRACK]: { id: BLOCK.NETHER_BRICK, count: 1 },
   [BLOCK.CACTUS]:     { id: ITEM.GREEN_DYE,    count: 1 },
   [ITEM.RAW_FISH]:    { id: ITEM.COOKED_FISH,  count: 1 },
+  [BLOCK.ANCIENT_DEBRIS]: { id: ITEM.NETHERITE_SCRAP, count: 1 },
 };
 export const FUEL = {
   [ITEM.COAL]:    16,
@@ -1452,6 +1542,7 @@ export function xpFromMining(blockId) {
     case BLOCK.LAPIS_ORE: return 2;
     case BLOCK.MOB_SPAWNER: return 15;
     case BLOCK.GLOWSTONE: return 1;
+    case BLOCK.ANCIENT_DEBRIS: return 4;
     default: return 0;
   }
 }
@@ -1459,6 +1550,7 @@ export function xpFromSmelting(itemId) {
   switch (itemId) {
     case ITEM.IRON_INGOT: return 1;
     case ITEM.GOLD_INGOT: return 2;
+    case ITEM.NETHERITE_SCRAP: return 2;
     default: return 0;
   }
 }
@@ -1511,17 +1603,58 @@ export function isPotionItem(id) {
 
 // ---- Phase 7: anvil repair materials ----------------------------------------------
 // item id -> the raw material that repairs 25% of max durability per unit in
-// the anvil. Only items that actually wear (tools/weapons/shield — armor has
-// no durability in this game) are listed; anything absent can only be
+// the anvil. Every item that wears is listed (Phase 10 gave armor durability,
+// so armor repairs with its base material too); anything absent can only be
 // repaired by combining two of the same item.
-const IRON_GEAR = [ITEM.IRON_PICKAXE, ITEM.IRON_AXE, ITEM.IRON_SHOVEL, ITEM.IRON_SWORD, ITEM.IRON_HOE];
-const GOLD_GEAR = [ITEM.GOLDEN_PICKAXE, ITEM.GOLDEN_AXE, ITEM.GOLDEN_SHOVEL, ITEM.GOLDEN_SWORD, ITEM.GOLDEN_HOE];
-const DIAMOND_GEAR = [ITEM.DIAMOND_PICKAXE, ITEM.DIAMOND_AXE, ITEM.DIAMOND_SHOVEL, ITEM.DIAMOND_SWORD];
+const IRON_GEAR = [ITEM.IRON_PICKAXE, ITEM.IRON_AXE, ITEM.IRON_SHOVEL, ITEM.IRON_SWORD, ITEM.IRON_HOE,
+  ITEM.IRON_HELMET, ITEM.IRON_CHEST, ITEM.IRON_LEGS, ITEM.IRON_BOOTS];
+const GOLD_GEAR = [ITEM.GOLDEN_PICKAXE, ITEM.GOLDEN_AXE, ITEM.GOLDEN_SHOVEL, ITEM.GOLDEN_SWORD, ITEM.GOLDEN_HOE,
+  ITEM.GOLDEN_HELMET, ITEM.GOLDEN_CHEST, ITEM.GOLDEN_LEGS, ITEM.GOLDEN_BOOTS];
+const DIAMOND_GEAR = [ITEM.DIAMOND_PICKAXE, ITEM.DIAMOND_AXE, ITEM.DIAMOND_SHOVEL, ITEM.DIAMOND_SWORD,
+  ITEM.DIAMOND_HELMET, ITEM.DIAMOND_CHEST, ITEM.DIAMOND_LEGS, ITEM.DIAMOND_BOOTS];
+const NETHERITE_GEAR = [ITEM.NETHERITE_PICKAXE, ITEM.NETHERITE_AXE, ITEM.NETHERITE_SHOVEL, ITEM.NETHERITE_SWORD,
+  ITEM.NETHERITE_HELMET, ITEM.NETHERITE_CHEST, ITEM.NETHERITE_LEGS, ITEM.NETHERITE_BOOTS];
+const LEATHER_GEAR = [ITEM.LEATHER_HELMET, ITEM.LEATHER_CHEST, ITEM.LEATHER_LEGS, ITEM.LEATHER_BOOTS];
 const STONE_GEAR = [ITEM.STONE_PICKAXE, ITEM.STONE_AXE, ITEM.STONE_SHOVEL, ITEM.STONE_SWORD, ITEM.STONE_HOE];
 const WOOD_GEAR = [ITEM.WOODEN_PICKAXE, ITEM.WOODEN_AXE, ITEM.WOODEN_SHOVEL, ITEM.WOODEN_SWORD, ITEM.WOODEN_HOE, ITEM.SHIELD];
 export const REPAIR_MATERIAL = {};
 for (const id of IRON_GEAR) REPAIR_MATERIAL[id] = ITEM.IRON_INGOT;
 for (const id of GOLD_GEAR) REPAIR_MATERIAL[id] = ITEM.GOLD_INGOT;
 for (const id of DIAMOND_GEAR) REPAIR_MATERIAL[id] = ITEM.DIAMOND;
+for (const id of NETHERITE_GEAR) REPAIR_MATERIAL[id] = ITEM.NETHERITE_INGOT;
+for (const id of LEATHER_GEAR) REPAIR_MATERIAL[id] = ITEM.LEATHER;
 for (const id of STONE_GEAR) REPAIR_MATERIAL[id] = BLOCK.COBBLESTONE;
 for (const id of WOOD_GEAR) REPAIR_MATERIAL[id] = BLOCK.PLANK;
+
+// ---- Phase 10: netherite smithing upgrade -------------------------------------------
+// diamond item + one netherite ingot in the ANVIL -> netherite version, keeping
+// enchantments and the remaining-durability RATIO (anvil.js). The anvil is the
+// smithing table here — one repair UI instead of two (documented choice).
+export const NETHERITE_UPGRADE = {
+  [ITEM.DIAMOND_PICKAXE]: ITEM.NETHERITE_PICKAXE,
+  [ITEM.DIAMOND_AXE]: ITEM.NETHERITE_AXE,
+  [ITEM.DIAMOND_SHOVEL]: ITEM.NETHERITE_SHOVEL,
+  [ITEM.DIAMOND_SWORD]: ITEM.NETHERITE_SWORD,
+  [ITEM.DIAMOND_HELMET]: ITEM.NETHERITE_HELMET,
+  [ITEM.DIAMOND_CHEST]: ITEM.NETHERITE_CHEST,
+  [ITEM.DIAMOND_LEGS]: ITEM.NETHERITE_LEGS,
+  [ITEM.DIAMOND_BOOTS]: ITEM.NETHERITE_BOOTS,
+};
+
+// ---- Phase 10: explosions ---------------------------------------------------------------
+// Blocks at least this hard shrug off explosions (obsidian, ancient debris).
+export const BLAST_RESIST_HARDNESS = 6;
+
+// ---- Phase 10: saplings -------------------------------------------------------------------
+// Leaves drop the matching sapling at SAPLING_DROP_CHANCE; a planted sapling
+// has a per-second SAPLING_GROW_CHANCE to become its tree (bone meal: instant).
+export const SAPLING_DROP_CHANCE = 0.08;
+export const SAPLING_GROW_CHANCE = 0.008;
+export const SAPLING_FOR_LEAVES = {
+  [BLOCK.LEAVES]: BLOCK.SAPLING_OAK,
+  [BLOCK.BIRCH_LEAVES]: BLOCK.SAPLING_BIRCH,
+  [BLOCK.SPRUCE_LEAVES]: BLOCK.SAPLING_SPRUCE,
+};
+export function isSapling(id) {
+  return id === BLOCK.SAPLING_OAK || id === BLOCK.SAPLING_BIRCH || id === BLOCK.SAPLING_SPRUCE;
+}

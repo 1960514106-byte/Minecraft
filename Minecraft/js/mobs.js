@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { BLOCK, ITEM, SEA_LEVEL, BIOME, NETHER_HEIGHT, CHUNK_HEIGHT, isSolid } from './config.js';
 import {
   MOB_DEFS, AI_NAMES, mobDef, spawnCandidates, weightedPick, rollMobDrops,
-  xpForMob, breedFoodOf,
+  xpForMob, breedFoodOf, HORSE_ARMOR,
 } from './mobdefs.js';
 import { professionForPos, tradeTierFromUses, MAX_TRADE_TIER } from './trades.js';
 
@@ -218,6 +218,7 @@ export class MobManager {
             vy: Number.isFinite(m.vy) ? m.vy : 0,
             size: m.size || 0,
             saddled: !!m.saddled,
+            horseArmor: m.horseArmor || null,
             effects: Array.isArray(m.effects) ? m.effects : null,
             // Phase 8: villager profession/tier survive save-load (missing
             // fields re-roll deterministically from position in addMob).
@@ -640,6 +641,14 @@ export class MobManager {
     saddle.visible = false;
     g.userData.saddle = saddle;
     g.add(saddle);
+    // Phase 10: horse-armor plate — a thin shell over the body, hidden until a
+    // tier is equipped (material swapped per tier in applyHorseArmor).
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 1.58), this.materials.horseDark);
+    plate.userData.baseMaterial = this.materials.horseDark;
+    plate.position.set(0, 0.98, 0);
+    plate.visible = false;
+    g.userData.armorPlate = plate;
+    g.add(plate);
     return g;
   }
 
@@ -724,6 +733,8 @@ export class MobManager {
       size: size || 0,
       saddled: !!extra.saddled,
       ridden: false,
+      // Phase 10: equipped horse-armor tier key ('iron'|'gold'|'diamond') or null.
+      horseArmor: null,
       // Phase 7: lightweight status effects [{ id, amp, t, tick }].
       effects: Array.isArray(extra.effects)
         ? extra.effects.filter((e) => e && e.id && e.t > 0).map((e) => ({ id: e.id, amp: e.amp || 1, t: e.t, tick: 0 }))
@@ -737,8 +748,27 @@ export class MobManager {
     if (size) mesh.scale.setScalar(0.35 + 0.32 * size); // 1 -> 0.67, 2 -> 0.99, 3 -> 1.31
     if (mob.tame && mesh.userData.collar) mesh.userData.collar.visible = true;
     if (mob.saddled && mesh.userData.saddle) mesh.userData.saddle.visible = true;
+    if (extra.horseArmor) this.applyHorseArmor(mob, extra.horseArmor);
     this.mobs.push(mob);
     return mob;
+  }
+
+  // Equip a horse-armor tier: remembers the key (persisted) and colours the
+  // plate mesh. Tier materials are created lazily and shared across horses.
+  applyHorseArmor(mob, tier) {
+    if (!HORSE_ARMOR[tier]) return false;
+    mob.horseArmor = tier;
+    const plate = mob.mesh.userData.armorPlate;
+    if (plate) {
+      if (!this._horseArmorMats) this._horseArmorMats = {};
+      if (!this._horseArmorMats[tier]) {
+        this._horseArmorMats[tier] = new THREE.MeshLambertMaterial({ color: HORSE_ARMOR[tier].color });
+      }
+      plate.material = this._horseArmorMats[tier];
+      plate.userData.baseMaterial = this._horseArmorMats[tier];
+      plate.visible = true;
+    }
+    return true;
   }
 
   removeAt(i) {
@@ -967,6 +997,10 @@ export class MobManager {
     if (mob.type === 'ender_dragon' && mob.dragonState !== 'perch') {
       amount = Math.max(1, Math.round(amount * 0.5));
     }
+    // Horse armor absorbs a fraction of every hit (Phase 10).
+    if (mob.horseArmor && HORSE_ARMOR[mob.horseArmor]) {
+      amount = Math.max(1, Math.round(amount * (1 - HORSE_ARMOR[mob.horseArmor].reduction)));
+    }
     mob.health -= amount;
     mob.hurtTimer = 0.22;
     for (const child of mob.mesh.children) child.material = this.materials.hurt;
@@ -1045,7 +1079,14 @@ export class MobManager {
     }
 
     if (!survival.alive) {
-      for (let i = this.mobs.length - 1; i >= 0; i--) this.removeAt(i);
+      // The death wipe clears the field so hostiles cannot camp the respawn —
+      // but keepsakes (tamed wolves, saddled/armored horses, golems) survive
+      // it, matching how they also never distance-despawn (Phase 10).
+      for (let i = this.mobs.length - 1; i >= 0; i--) {
+        const m = this.mobs[i];
+        if (m.tame || m.saddled || m.horseArmor || mobDef(m.type).persist) continue;
+        this.removeAt(i);
+      }
       this.spawnTimer = 2;
       this.passiveSpawnTimer = 3;
       return;
@@ -2159,6 +2200,7 @@ export class MobManager {
       if (m.vy) o.vy = m.vy; // optional; restores mid-air mobs (defaults to 0)
       if (m.size) o.size = m.size;      // slimes / magma cubes
       if (m.saddled) o.saddled = true;  // horses
+      if (m.horseArmor) o.horseArmor = m.horseArmor;
       if (m.profession) {               // villagers (Phase 8)
         o.profession = m.profession;
         o.tradeTier = m.tradeTier || 1;

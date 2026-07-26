@@ -7,7 +7,8 @@ import { BLOCK, SEA_LEVEL, WOOL_BLOCKS, WOOL_RGB } from './config.js';
 const SIZE = 120;
 const RANGE = 64;
 
-const BLOCK_COLORS = {
+// Exported (Phase 10): the map-item overlay reuses this palette.
+export const BLOCK_COLORS = {
   [BLOCK.GRASS]: [95, 158, 64],
   [BLOCK.DIRT]: [135, 96, 68],
   [BLOCK.STONE]: [128, 128, 132],
@@ -94,9 +95,42 @@ const BLOCK_COLORS = {
   [BLOCK.END_PORTAL]: [16, 12, 34],
   [BLOCK.DRAGON_EGG]: [34, 18, 44],
   [BLOCK.BEACON]: [180, 235, 245],
+  // Phase 10.
+  [BLOCK.ANCIENT_DEBRIS]: [74, 50, 40],
+  [BLOCK.SAPLING_OAK]: [70, 120, 50],
+  [BLOCK.SAPLING_BIRCH]: [110, 150, 80],
+  [BLOCK.SAPLING_SPRUCE]: [40, 84, 60],
 };
 // All 16 wool colours share the registry palette.
 for (const woolId of WOOL_BLOCKS) BLOCK_COLORS[woolId] = WOOL_RGB[woolId];
+
+// Paint a top-down terrain view into an ImageData. Shared by the corner
+// minimap and the fullscreen map item (Phase 10): sample the surface column,
+// colour by block, shade by height. Unknown blocks fall back by sea level.
+export function paintTerrain(img, size, world, px, pz, range) {
+  const half = range / 2;
+  for (let sy = 0; sy < size; sy++) {
+    for (let sx = 0; sx < size; sx++) {
+      const wx = px + Math.floor((sx / size) * range - half);
+      const wz = pz + Math.floor((sy / size) * range - half);
+      const h = typeof world.surfaceHeight === 'function' ? world.surfaceHeight(wx, wz) : -1;
+      let r = 20, g = 20, b = 30;
+      if (h >= 0) {
+        const block = world.getBlock(wx, h, wz);
+        const c = BLOCK_COLORS[block] || (h <= SEA_LEVEL ? [60, 100, 190] : [100, 100, 100]);
+        const shade = Math.min(1, 0.6 + h / 80);
+        r = Math.floor(c[0] * shade);
+        g = Math.floor(c[1] * shade);
+        b = Math.floor(c[2] * shade);
+      }
+      const i = (sy * size + sx) * 4;
+      img.data[i] = r;
+      img.data[i + 1] = g;
+      img.data[i + 2] = b;
+      img.data[i + 3] = 255;
+    }
+  }
+}
 
 export class Minimap {
   constructor(container) {
@@ -124,31 +158,7 @@ export class Minimap {
     const px = Math.floor(playerPos.x);
     const pz = Math.floor(playerPos.z);
     const img = this.ctx.createImageData(SIZE, SIZE);
-    const half = RANGE / 2;
-    const scale = SIZE / RANGE;
-
-    for (let sy = 0; sy < SIZE; sy++) {
-      for (let sx = 0; sx < SIZE; sx++) {
-        const wx = px + Math.floor((sx / SIZE) * RANGE - half);
-        const wz = pz + Math.floor((sy / SIZE) * RANGE - half);
-        const h = typeof world.surfaceHeight === 'function' ? world.surfaceHeight(wx, wz) : -1;
-        let r = 20, g = 20, b = 30;
-        if (h >= 0) {
-          const block = world.getBlock(wx, h, wz);
-          const c = BLOCK_COLORS[block] || (h <= SEA_LEVEL ? [60, 100, 190] : [100, 100, 100]);
-          r = c[0]; g = c[1]; b = c[2];
-          const shade = Math.min(1, 0.6 + h / 80);
-          r = Math.floor(r * shade);
-          g = Math.floor(g * shade);
-          b = Math.floor(b * shade);
-        }
-        const i = (sy * SIZE + sx) * 4;
-        img.data[i] = r;
-        img.data[i + 1] = g;
-        img.data[i + 2] = b;
-        img.data[i + 3] = 255;
-      }
-    }
+    paintTerrain(img, SIZE, world, px, pz, RANGE);
 
     // Player marker (center)
     const cx = Math.floor(SIZE / 2);

@@ -27,7 +27,7 @@ import { EffectManager, EFFECTS } from './effects.js';
 import { BrewingManager, brewResult, isBrewIngredient, isBottleSlotItem, BREW_TIME } from './brewing.js';
 import { anvilResult, ANVIL_XP_COST } from './anvil.js';
 import { AchievementManager } from './achievements.js';
-import { Minimap } from './minimap.js';
+import { Minimap, paintTerrain } from './minimap.js';
 import { Weather } from './weather.js';
 import { XPManager } from './xp.js';
 import { Redstone } from './redstone.js';
@@ -51,6 +51,8 @@ import {
   itemMaxDurability, placeableBlock, isClimbable, isSolid, isRail, stackEnchant,
   xpFromMining, xpFromKill, isEnchantable, ENCHANTMENTS, enchantCost, decodeEditId, blockModel,
   fluidLevel, POTION_EFFECTS, isPotionItem,
+  SAPLING_DROP_CHANCE, SAPLING_GROW_CHANCE, SAPLING_FOR_LEAVES, isSapling,
+  BLAST_RESIST_HARDNESS,
 } from './config.js';
 
 // ---- Renderer ---------------------------------------------------------------
@@ -172,7 +174,7 @@ function ensureEnd() {
   return endWorld;
 }
 
-const SAVE_VERSION = 16;
+const SAVE_VERSION = 17;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
@@ -253,6 +255,28 @@ const minimap = new Minimap(document.body);
 const weather = new Weather(scene);
 if (hasSave && save.weather) weather.restore(save.weather);
 const xpManager = new XPManager(scene, hasSave ? save.xp : null);
+// Phase 10: dying forfeits all XP; min(level*7, 100) comes back as orbs at the
+// death point, so a corpse run recovers a share. Orb pickup pauses while dead
+// (see the xpManager.update gate), leaving the orbs for the return trip.
+survival.onDeath = () => {
+  const refund = Math.min(xpManager.level * 7, 100);
+  xpManager.reset();
+  if (refund <= 0) return;
+  const p = player.getObject().position;
+  const orbs = Math.max(1, Math.min(10, Math.round(refund / 10)));
+  for (let i = 0; i < orbs; i++) {
+    xpManager.spawnOrb(new THREE.Vector3(
+      p.x + (Math.random() - 0.5) * 2.2,
+      p.y - 1 + Math.random() * 0.8,
+      p.z + (Math.random() - 0.5) * 2.2,
+    ), Math.round(refund / orbs));
+  }
+};
+// Phase 10: a worn-out armor piece vanishes with a break sound.
+survival.onArmorBreak = () => {
+  feedback.play('break');
+  survival._setMessage('Your armor broke!');
+};
 if (hasSave && save.redstone) redstoneOver.restore(save.redstone);
 if (hasSave && save.fluids) fluidsOver.restore(save.fluids);
 const projectiles = new ProjectileManager(scene, world);
@@ -726,6 +750,8 @@ function explodeAt(center, radius) {
         if (id === BLOCK.AIR || id === BLOCK.WATER || id === BLOCK.BEDROCK) continue;
         // End portal frames/portals are blast-proof (like bedrock).
         if (id === BLOCK.END_PORTAL_FRAME || id === BLOCK.END_PORTAL) continue;
+        // Phase 10: very hard blocks (obsidian, ancient debris) resist blasts.
+        if (BLOCKS[id] && BLOCKS[id].hardness >= BLAST_RESIST_HARDNESS) continue;
         if (id === BLOCK.TNT) {
           igniteTNT(bx, by, bz, 0.25 + Math.random() * 0.5);
           continue;
@@ -1032,6 +1058,7 @@ window.addEventListener('keydown', async (e) => {
   if (e.code === 'Escape' && tradeOpen) closeTradeScreen();
   if (e.code === 'Escape' && brewOpen) closeBrew();
   if (e.code === 'Escape' && anvilOpen) closeAnvil();
+  if (e.code === 'Escape' && mapOpen) closeMapScreen();
   if (e.code === 'KeyT') dayNight.skip(1 / 24);
   if (e.code === 'KeyP') dayNight.togglePause();
   if (e.code === 'KeyK') {
@@ -1189,6 +1216,24 @@ function consumeDurability(slot, amount = 1) {
   refreshHotbar();
 }
 
+// The bone-meal effect at a cell (Phase 10): a sapling becomes its tree, a
+// crop jumps straight to the mature stage. Returns true if anything grew (the
+// caller then consumes the dose). Shared by the click path and ?debug=1.
+function applyBoneMeal(x, y, z) {
+  const id = world.getBlock(x, y, z);
+  if (isSapling(id)) {
+    if (!world.growTree(x, y, z, id)) return false;
+    feedback.placeBurst(BLOCK.LEAVES, new THREE.Vector3(x + 0.5, y + 1.5, z + 0.5));
+    return true;
+  }
+  let mature = nextCropStage(id);
+  if (!mature) return false;
+  for (let n = nextCropStage(mature); n; n = nextCropStage(mature)) mature = n;
+  world.setBlock(x, y, z, mature);
+  feedback.placeBurst(mature, new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5));
+  return true;
+}
+
 function breakBlock(hit, toolId = null) {
   const id = world.getBlock(hit.x, hit.y, hit.z);
   // Creative breaks everything (even bedrock); portal blocks are never mined
@@ -1213,6 +1258,12 @@ function breakBlock(hit, toolId = null) {
     }
     if (id === BLOCK.TALL_GRASS && hash01(hit.x, hit.y, hit.z) < SEED_DROP_CHANCE) {
       drops.spawn(ITEM.WHEAT_SEEDS, 1, dropPos);
+    }
+    // Phase 10: leaves sometimes drop the matching sapling (fresh roll, so a
+    // leaf can yield an apple AND a sapling like vanilla).
+    const sapling = SAPLING_FOR_LEAVES[id];
+    if (sapling && Math.random() < SAPLING_DROP_CHANCE) {
+      drops.spawn(sapling, 1, dropPos);
     }
   }
   // Breaking the support block under a crop pops the crop too.
@@ -1481,6 +1532,19 @@ renderer.domElement.addEventListener('mousedown', (e) => {
           scheduleSave();
           return;
         }
+        // Phase 10: horse armor (loot-only item) — equips onto a bare horse,
+        // tints the plate and soaks a fraction of damage (mobs.damageMob).
+        const armorTier = heldNow && ITEMS[heldNow.id] && ITEMS[heldNow.id].horseArmor;
+        if (armorTier && !m.horseArmor) {
+          mobs.applyHorseArmor(m, armorTier);
+          if (!isCreative()) inventory.removeOneAt(selected);
+          triggerSwing();
+          feedback.play('place');
+          survival._setMessage('Horse armor equipped!');
+          refreshHotbar();
+          scheduleSave();
+          return;
+        }
         if (m.saddled && !ridingHorse && !ridingCart && !ridingBoat) {
           mountHorse(m);
           return;
@@ -1639,6 +1703,12 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     // Bow: start drawing (the arrow is released on mouseup).
     const held = inventory.get(selected);
 
+    // Map (Phase 10): using it opens the fullscreen terrain map.
+    if (held && held.id === ITEM.MAP) {
+      openMapScreen();
+      return;
+    }
+
     // Eye of ender: insert into an empty portal frame, or (aimed anywhere
     // else) launch a tracer that flies toward the stronghold for ~3 s.
     if (held && held.id === ITEM.EYE_OF_ENDER) {
@@ -1795,17 +1865,19 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       return;
     }
 
-    // Bone meal: instantly advance a growing crop one stage.
+    // Bone meal: crops jump straight to maturity (Phase 10 — was one stage);
+    // saplings grow into their tree on the spot.
     if (held && held.id === ITEM.BONE_MEAL && hit) {
-      const next = nextCropStage(hitBlock);
-      if (next) {
-        world.setBlock(hit.x, hit.y, hit.z, next);
+      if (applyBoneMeal(hit.x, hit.y, hit.z)) {
         if (!isCreative()) inventory.removeOneAt(selected);
         triggerSwing();
         feedback.play('place');
-        feedback.placeBurst(next, new THREE.Vector3(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5));
         refreshHotbar();
         scheduleSave();
+        return;
+      }
+      if (isSapling(hitBlock)) {
+        survival._setMessage('The sapling has no room to grow');
         return;
       }
     }
@@ -1982,6 +2054,14 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       }
       if (!caneOk) {
         survival._setMessage('Sugar cane needs sand/dirt beside water');
+        return;
+      }
+    }
+    // Saplings only take root on grass or dirt (Phase 10).
+    if (isSapling(blockId)) {
+      const below = world.getBlock(px, py - 1, pz);
+      if (below !== BLOCK.GRASS && below !== BLOCK.DIRT) {
+        survival._setMessage('Saplings need grass or dirt');
         return;
       }
     }
@@ -2706,6 +2786,55 @@ function buildRecipeList() {
 }
 buildRecipeList();
 
+// ---- Phase 10: the map item ---------------------------------------------------------
+// Using a map renders a one-shot fullscreen top-down view of the terrain
+// around the player (minimap palette, 1 px per block upscaled by CSS). The
+// range matches the streamed chunk radius so no extra chunks generate.
+const MAP_PX = 192;      // canvas pixels == world blocks across (1 px/block)
+let mapOpen = false;
+const mapScreenEl = document.createElement('div');
+mapScreenEl.id = 'mapScreen';
+mapScreenEl.style.cssText = 'position:absolute;inset:0;background:rgba(8,8,14,0.85);display:none;' +
+  'z-index:80;align-items:center;justify-content:center;flex-direction:column;gap:10px;cursor:pointer;';
+const mapCanvasEl = document.createElement('canvas');
+mapCanvasEl.width = MAP_PX;
+mapCanvasEl.height = MAP_PX;
+mapCanvasEl.style.cssText = 'width:min(82vmin,760px);height:min(82vmin,760px);image-rendering:pixelated;' +
+  'border:5px solid #b08d57;border-radius:4px;background:#000;';
+const mapHintEl = document.createElement('div');
+mapHintEl.textContent = 'Map — click or press Esc to close';
+mapHintEl.style.cssText = 'color:#ddd;font:14px monospace;text-shadow:0 1px 2px #000;';
+mapScreenEl.appendChild(mapCanvasEl);
+mapScreenEl.appendChild(mapHintEl);
+document.body.appendChild(mapScreenEl);
+mapScreenEl.addEventListener('click', () => closeMapScreen());
+
+function openMapScreen() {
+  if (mapOpen || !survival.alive) return;
+  mapOpen = true;
+  const p = player.getObject().position;
+  const ctx = mapCanvasEl.getContext('2d');
+  const img = ctx.createImageData(MAP_PX, MAP_PX);
+  paintTerrain(img, MAP_PX, world, Math.floor(p.x), Math.floor(p.z), MAP_PX);
+  // Player marker: a white plus at the centre.
+  const c = MAP_PX / 2;
+  for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]) {
+    const i = ((c + dy) * MAP_PX + (c + dx)) * 4;
+    img.data[i] = 255; img.data[i + 1] = 255; img.data[i + 2] = 255; img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  mapScreenEl.style.display = 'flex';
+  player.controls.unlock();
+  overlay.classList.add('hidden');
+}
+
+function closeMapScreen() {
+  if (!mapOpen) return;
+  mapOpen = false;
+  mapScreenEl.style.display = 'none';
+  if (survival.alive) overlay.classList.remove('hidden');
+}
+
 // ---- Debug handle ----------------------------------------------------------------
 // With ?debug=1 the page exposes the live world/player for automated browser
 // checks (Playwright) and manual console poking. `world` rebinds on dimension
@@ -2809,6 +2938,14 @@ if (new URLSearchParams(location.search).has('debug')) {
     save: () => doSave(),
     get portalCooldown() { return portalCooldown; },
     get endPortalTimer() { return endPortalTimer; },
+    // ---- Phase 10 handles ---------------------------------------------------------
+    ensureNether: () => ensureNether(),
+    openMap: () => openMapScreen(),
+    closeMap: () => closeMapScreen(),
+    get mapOpen() { return mapOpen; },
+    applyHorseArmor: (m, tier) => mobs.applyHorseArmor(m, tier),
+    growTree: (x, y, z, id) => world.growTree(x, y, z, id),
+    applyBoneMeal: (x, y, z) => applyBoneMeal(x, y, z),
   };
 }
 
@@ -3711,7 +3848,7 @@ function refreshAnvil() {
     anvilCostEl.style.color = afford ? '#8bc88b' : '#e08080';
   } else {
     anvilCostEl.textContent = anvilSlots[0] || anvilSlots[1]
-      ? 'Combine two of the same item, or add its repair material.' : '';
+      ? 'Combine two of the same item, add its repair material, or upgrade diamond gear with a netherite ingot.' : '';
     anvilCostEl.style.color = '';
   }
   for (let i = 0; i < HOTBAR_SIZE; i++) paintCell(anvilHotbarCells[i], inventory.get(i));
@@ -4585,6 +4722,7 @@ function animate() {
   if (cropTickTimer >= 1) {
     cropTickTimer = 0;
     const grow = [];
+    const sprout = []; // saplings ready to become trees (Phase 10)
     for (const [ck, inner] of world.edits) {
       for (const [lk, v] of inner) {
         const editId = decodeEditId(v);
@@ -4593,6 +4731,10 @@ function animate() {
           const [cx, cz] = ck.split(',').map(Number);
           const [lx, y, lz] = lk.split(',').map(Number);
           grow.push({ x: cx * 16 + lx, y, z: cz * 16 + lz, id: next });
+        } else if (isSapling(editId) && Math.random() < SAPLING_GROW_CHANCE) {
+          const [cx, cz] = ck.split(',').map(Number);
+          const [lx, y, lz] = lk.split(',').map(Number);
+          sprout.push({ x: cx * 16 + lx, y, z: cz * 16 + lz, id: editId });
         } else if (editId === BLOCK.SUGAR_CANE && Math.random() < CANE_GROW_CHANCE) {
           // Player-planted cane grows a segment: air above, under 3 tall,
           // water still adjacent to the supporting block.
@@ -4611,8 +4753,10 @@ function animate() {
         }
       }
     }
-    if (grow.length) {
+    if (grow.length || sprout.length) {
       for (const g of grow) world.setBlock(g.x, g.y, g.z, g.id);
+      // growTree edits the map being iterated, so it runs after the scan.
+      for (const s of sprout) world.growTree(s.x, s.y, s.z, s.id);
       scheduleSave();
     }
   }
@@ -4673,8 +4817,9 @@ function animate() {
     }
   }
 
-  // XP orbs
-  if (xpManager.update(dt, p)) {
+  // XP orbs (paused while dead so death-refund orbs are not vacuumed back up
+  // by the corpse — they wait for the return trip).
+  if (survival.alive && xpManager.update(dt, p)) {
     feedback.play('pickup');
     if (xpManager.leveledUp) {
       feedback.play('levelUp');

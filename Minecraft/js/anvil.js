@@ -1,14 +1,17 @@
 // =============================================================================
 // anvil.js — Pure anvil logic (three-free so the smoke suite covers it).
-// Two operations, both cost ANVIL_XP_COST (2) XP levels flat:
+// Three operations, all cost ANVIL_XP_COST (2) XP levels flat:
 //   (a) combine two of the SAME item: durabilities add plus a 12% bonus of
 //       max, enchantments merge taking the max level of each key;
 //   (b) item + its REPAIR_MATERIAL: each material unit restores 25% of max
-//       durability (only as many materials as needed are consumed).
+//       durability (only as many materials as needed are consumed);
+//   (c) smithing (Phase 10): diamond gear + one netherite ingot -> the
+//       netherite version, keeping enchantments and the durability RATIO.
+//       The anvil doubles as the smithing table — one repair UI (documented).
 // Renaming is skipped — items have no custom names in this game (documented).
 // =============================================================================
 
-import { REPAIR_MATERIAL, itemMaxDurability } from './config.js';
+import { REPAIR_MATERIAL, NETHERITE_UPGRADE, ITEM, itemMaxDurability } from './config.js';
 
 export const ANVIL_XP_COST = 2;
 
@@ -38,6 +41,22 @@ export function anvilResult(a, b) {
     if (a.splash) result.splash = true; // never applies today; keeps flags safe
     return { result, consumeA: 1, consumeB: 1 };
   }
+
+  // (c) Smithing upgrade: diamond gear + netherite ingot (either order).
+  const tryUpgrade = (item, mat, itemIsA) => {
+    if (mat.id !== ITEM.NETHERITE_INGOT || item.count !== 1) return null;
+    const upgraded = NETHERITE_UPGRADE[item.id];
+    if (!upgraded) return null;
+    const oldMax = itemMaxDurability(item.id);
+    const newMax = itemMaxDurability(upgraded);
+    // Keep the wear RATIO across the tier jump (a half-worn sword stays half).
+    const dur = Math.max(1, Math.round((durOf(item, oldMax) / oldMax) * newMax));
+    const result = { id: upgraded, count: 1, durability: dur };
+    if (item.enchantments) result.enchantments = { ...item.enchantments };
+    return { result, consumeA: 1, consumeB: 1, upgrade: true };
+  };
+  const up = tryUpgrade(a, b, true) || tryUpgrade(b, a, false);
+  if (up) return up;
 
   // (b) Item + matching raw material (accept both slot orders).
   const tryRepair = (item, mat, itemIsA) => {
