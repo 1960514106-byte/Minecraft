@@ -10,14 +10,14 @@
 
 import { World } from './world.js';
 import { decorateStructures } from './structures.js';
-import { CHUNK_SIZE, CHUNK_HEIGHT, BLOCK } from './config.js';
+import { CHUNK_SIZE, CHUNK_HEIGHT, BLOCK, DIMENSIONS } from './config.js';
 
 const LAVA_LEVEL = 12;
 
 export class NetherWorld extends World {
   constructor(scene, atlasTexture) {
     super(scene, atlasTexture);
-    this.skyless = true;
+    this.dim = DIMENSIONS.nether; // no sky: world.skyless derives from this
   }
 
   netherFloor(wx, wz) {

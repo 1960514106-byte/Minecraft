@@ -60,6 +60,75 @@ function clearLegacySave() {
   }
 }
 
+// ---- Save migrations ----------------------------------------------------------
+// MIGRATIONS[v] upgrades a version-v save one step; migrateSave() chains them
+// until the save is current. loadGame() runs the chain before returning, so the
+// rest of the game only ever sees the latest format.
+
+// v7 -> v8: item ids moved from the 100+ range to 1000+ (freeing 78-999 for
+// future block ids), and the single `otherDimension` parked-entity bucket
+// became a `parked` map keyed by dimension id.
+const V8_ITEM_SHIFT = 900;
+
+function remapItemId(id) {
+  return typeof id === 'number' && id >= 100 && id < 200 ? id + V8_ITEM_SHIFT : id;
+}
+
+// Remap one stack ({ id, count, ... }) in place; tolerates null/absent slots.
+function remapStack(s) {
+  if (s && typeof s === 'object' && s.id != null) s.id = remapItemId(s.id);
+  return s;
+}
+
+function remapStackArray(arr) {
+  if (Array.isArray(arr)) for (const s of arr) remapStack(s);
+  return arr;
+}
+
+function v7to8(save) {
+  // Inventory + armor (legacy armor slots may hold a bare item id).
+  remapStackArray(save.inventory);
+  if (save.survival && save.survival.armor) {
+    for (const slot of ['head', 'chest', 'legs', 'feet']) {
+      const v = save.survival.armor[slot];
+      if (typeof v === 'number') save.survival.armor[slot] = remapItemId(v);
+      else remapStack(v);
+    }
+  }
+  // Per-block containers: chests (27-slot sparse arrays) and furnaces.
+  if (save.chests) for (const key in save.chests) remapStackArray(save.chests[key]);
+  if (save.furnaces) {
+    for (const key in save.furnaces) {
+      const f = save.furnaces[key];
+      if (f) { remapStack(f.input); remapStack(f.fuel); remapStack(f.output); }
+    }
+  }
+  // Loose dropped-item entities in the active dimension.
+  remapStackArray(save.drops);
+  // Parked entities of the inactive dimension: remap the drops and fold the
+  // single bucket into the per-dimension `parked` map used from v8 on.
+  if (save.otherDimension) {
+    remapStackArray(save.otherDimension.drops);
+    const otherId = save.dimension === 'nether' ? 'overworld' : 'nether';
+    save.parked = { [otherId]: save.otherDimension };
+    delete save.otherDimension;
+  }
+  // Block ids (< 78) and world edits are unchanged by this migration.
+  save.version = 8;
+  return save;
+}
+
+const MIGRATIONS = { 7: v7to8 };
+
+export function migrateSave(save) {
+  if (!save || typeof save.version !== 'number') return save;
+  // Versions 1-6 used the same item ids and shapes v7 tolerated via optional
+  // fields, so they enter the chain at the v7 step.
+  if (save.version >= 1 && save.version < 7) save.version = 7;
+  while (save && MIGRATIONS[save.version]) save = MIGRATIONS[save.version](save);
+  return save;
+}
+
 // Persist a JSON-able state object. Returns true on success.
 export async function saveGame(state) {
   try {
@@ -87,10 +156,10 @@ export async function loadGame() {
       }
     }
     db.close();
-    return save || null;
+    return migrateSave(save || null);
   } catch (e) {
     console.warn('[storage] IndexedDB load failed:', e);
-    return loadLegacySave();
+    return migrateSave(loadLegacySave());
   }
 }
 

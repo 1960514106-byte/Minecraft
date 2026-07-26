@@ -156,7 +156,10 @@ export class Chunk {
   constructor(cx, cz) {
     this.cx = cx;
     this.cz = cz;
-    this.data = new Uint8Array(VOLUME); // all AIR (0) initially
+    this.data = new Uint16Array(VOLUME); // all AIR (0) initially
+    // Per-block metadata parallel to `data` (geometry state: stair facing,
+    // slab half, log axis, fluid level...). 0 for plain blocks.
+    this.meta = new Uint8Array(VOLUME);
     this.mesh = null;
     // Light fields installed by lighting.js computeChunkLight().
     this.lightSky = null;
@@ -176,6 +179,20 @@ export class Chunk {
       return;
     }
     this.data[localIndex(x, y, z)] = id;
+  }
+
+  getMetaLocal(x, y, z) {
+    if (x < 0 || x >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT) {
+      return 0;
+    }
+    return this.meta[localIndex(x, y, z)];
+  }
+
+  setMetaLocal(x, y, z, v) {
+    if (x < 0 || x >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT) {
+      return;
+    }
+    this.meta[localIndex(x, y, z)] = v;
   }
 
   // Build (and return) the chunk's mesh as a Group with up to two children:

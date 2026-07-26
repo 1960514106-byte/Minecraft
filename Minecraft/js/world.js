@@ -11,7 +11,8 @@ import { decorateStructures } from './structures.js';
 import {
   CHUNK_SIZE, CHUNK_HEIGHT, RENDER_DISTANCE, WORLD_SEED,
   BASE_HEIGHT, HEIGHT_AMP, DIRT_DEPTH, SEA_LEVEL, SAND_LEVEL,
-  BIOME, BIOMES, BLOCK, isSolid, isTransparent, lightLevel,
+  BIOME, BIOMES, BLOCK, DIMENSIONS, isSolid, isTransparent, lightLevel,
+  encodeEdit, decodeEditId, decodeEditMeta,
 } from './config.js';
 
 const keyOf = (cx, cz) => cx + ',' + cz;
@@ -32,9 +33,10 @@ export class World {
     this.chunks = new Map(); // key -> { chunk, mesh|null }
 
     // Player edits as diffs against procedural generation, grouped by chunk:
-    //   Map<"cx,cz", Map<"lx,y,lz", blockId>>
-    // Re-applied every time a chunk is generated, so edits survive both chunk
-    // unload/reload and a full reload from localStorage.
+    //   Map<"cx,cz", Map<"lx,y,lz", encodedEdit>>
+    // Values pack block id + metadata (see encodeEdit in config.js; old saves'
+    // bare ids decode to meta 0). Re-applied every time a chunk is generated,
+    // so edits survive both chunk unload/reload and a full reload from storage.
     this.edits = new Map();
 
     // Procedural blocks a tree in one chunk spills into a NEIGHBOUR chunk (its
@@ -48,14 +50,20 @@ export class World {
     // therefore need their mesh rebuilt. Drained at the end of update().
     this.treeDirty = new Set();
 
-    // Nether worlds have no sunlight; lighting.js skips sky seeding when set.
-    this.skyless = false;
+    // Which dimension this world instance is (subclasses override). The
+    // descriptor drives sky lighting, container-key prefixes and save fields.
+    this.dim = DIMENSIONS.overworld;
 
     // Structure side-tables, rebuilt deterministically during generation (not
     // saved): loot chests waiting for their first open, and mob spawner types.
     this.structureLoot = new Map();     // "x,y,z" -> loot table kind
     this.structureSpawners = new Map(); // "x,y,z" -> mob type
   }
+
+  // Compat: dimensions without sky (nether/end) have no sunlight; lighting.js
+  // skips sky seeding when true. Reads stay valid everywhere; the discriminator
+  // itself now lives in the dimension descriptor.
+  get skyless() { return !this.dim.hasSky; }
 
   // ---- Biomes -------------------------------------------------------------
   // Classify a column from low-frequency temperature/moisture noise. The very
@@ -193,21 +201,22 @@ export class World {
   applyEdits(chunk) {
     const inner = this.edits.get(keyOf(chunk.cx, chunk.cz));
     if (!inner) return;
-    for (const [vk, id] of inner) {
+    for (const [vk, v] of inner) {
       const [lx, y, lz] = vk.split(',');
-      chunk.setBlockLocal(+lx, +y, +lz, id);
+      chunk.setBlockLocal(+lx, +y, +lz, decodeEditId(v));
+      chunk.setMetaLocal(+lx, +y, +lz, decodeEditMeta(v));
     }
   }
 
   // Record a single player edit in local (per-chunk) coordinates.
-  recordEdit(cx, cz, lx, y, lz, id) {
+  recordEdit(cx, cz, lx, y, lz, id, meta = 0) {
     const k = keyOf(cx, cz);
     let inner = this.edits.get(k);
     if (!inner) { inner = new Map(); this.edits.set(k, inner); }
-    inner.set(lx + ',' + y + ',' + lz, id);
+    inner.set(lx + ',' + y + ',' + lz, encodeEdit(id, meta));
   }
 
-  // Serialise all edits to a plain JSON-able object: { "cx,cz": { "lx,y,lz": id } }.
+  // Serialise all edits to a plain JSON-able object: { "cx,cz": { "lx,y,lz": encoded } }.
   serializeEdits() {
     const out = {};
     for (const [ck, inner] of this.edits) {
@@ -511,6 +520,15 @@ export class World {
     return chunk.getBlockLocal(posMod(x, CHUNK_SIZE), y, posMod(z, CHUNK_SIZE));
   }
 
+  // Metadata of the block at (x,y,z); 0 outside the world or in chunks that
+  // have not been generated (meta never forces a chunk into existence).
+  getMeta(x, y, z) {
+    if (y < 0 || y >= CHUNK_HEIGHT) return 0;
+    const entry = this.chunks.get(keyOf(floorDiv(x, CHUNK_SIZE), floorDiv(z, CHUNK_SIZE)));
+    if (!entry) return 0;
+    return entry.chunk.getMetaLocal(posMod(x, CHUNK_SIZE), y, posMod(z, CHUNK_SIZE));
+  }
+
   // Mark every chunk whose light can be affected by an edit at (x,z) as
   // light-dirty. Chunks outside the immediate remesh set are picked up lazily
   // by update(), a couple per frame, so one block edit never stalls a frame.
@@ -532,14 +550,15 @@ export class World {
     }
   }
 
-  setBlock(x, y, z, id) {
+  setBlock(x, y, z, id, meta = 0) {
     if (y < 0 || y >= CHUNK_HEIGHT) return;
     const cx = floorDiv(x, CHUNK_SIZE), cz = floorDiv(z, CHUNK_SIZE);
     const lx = posMod(x, CHUNK_SIZE), lz = posMod(z, CHUNK_SIZE);
     const chunk = this.getOrCreateChunk(cx, cz);
     const old = chunk.getBlockLocal(lx, y, lz);
     chunk.setBlockLocal(lx, y, lz, id);
-    this.recordEdit(cx, cz, lx, y, lz, id); // remember the change for save/reload
+    chunk.setMetaLocal(lx, y, lz, meta);
+    this.recordEdit(cx, cz, lx, y, lz, id, meta); // remember the change for save/reload
 
     // Only re-flood light when the edit can change it (different emission or
     // opacity). Same-shape swaps like doors toggling or repeaters flickering
@@ -573,7 +592,8 @@ export class World {
       const chunk = this.getOrCreateChunk(cx, cz);
       const old = chunk.getBlockLocal(lx, e.y, lz);
       chunk.setBlockLocal(lx, e.y, lz, e.id);
-      this.recordEdit(cx, cz, lx, e.y, lz, e.id);
+      chunk.setMetaLocal(lx, e.y, lz, e.meta || 0);
+      this.recordEdit(cx, cz, lx, e.y, lz, e.id, e.meta || 0);
       if (lightLevel(old) !== lightLevel(e.id) || isTransparent(old) !== isTransparent(e.id)) {
         this._markLightDirty(e.x, e.z);
       }

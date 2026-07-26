@@ -17,7 +17,7 @@ export const DIRT_DEPTH = 4;       // dirt/subsurface layer thickness under the 
 export const SEA_LEVEL = 20;       // empty space at/below this Y is flooded with water
 export const SAND_LEVEL = 21;      // surfaces at/below this height are sand (beaches + seabed)
 
-// ---- Block IDs (stored as bytes in chunk data) ------------------------------
+// ---- Block IDs (stored as uint16 in chunk data; ids must stay < 4096) -------
 export const BLOCK = {
   AIR:     0,
   GRASS:   1,
@@ -103,8 +103,8 @@ export const BLOCK = {
 // The atlas is ATLAS_COLS x ATLAS_ROWS tiles. A tile index is row-major:
 //   index = row * ATLAS_COLS + col
 export const TILE_PX = 16;   // pixel size of one tile when drawn to the atlas canvas
-export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 42;
+export const ATLAS_COLS = 8;
+export const ATLAS_ROWS = 64;
 
 // Tile indices into the atlas.
 export const TILES = {
@@ -301,81 +301,82 @@ export const TILES = {
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
-// inventory slot can hold either. Item IDs start above the block range.
+// inventory slot can hold either. Item IDs start at 1000, leaving 78-999 free
+// for future block ids (saves from the old 100+ range are migrated by storage.js).
 // Defined before BLOCKS because the ore block definitions reference ITEM.* in their `drops`.
 export const ITEM = {
-  APPLE: 100,
-  STICK: 101,
-  WOODEN_PICKAXE: 102,
-  WOODEN_AXE: 103,
-  WOODEN_SHOVEL: 104,
-  COAL: 105,
-  RAW_IRON: 106,
-  STONE_PICKAXE: 107,
-  STONE_AXE: 108,
-  STONE_SHOVEL: 109,
-  WOODEN_SWORD: 110,
-  STONE_SWORD: 111,
-  IRON_INGOT: 112,
-  GOLD_INGOT: 113,
-  REDSTONE: 114,
-  RAW_PORK: 115,
-  COOKED_PORK: 116,
-  RAW_BEEF: 117,
-  COOKED_BEEF: 118,
-  LEATHER: 119,
-  WOOL: 120,
-  LEATHER_HELMET: 121,
-  LEATHER_CHEST: 122,
-  IRON_HELMET: 123,
-  IRON_CHEST: 124,
-  IRON_PICKAXE: 125,
-  IRON_AXE: 126,
-  IRON_SHOVEL: 127,
-  IRON_SWORD: 128,
-  LEATHER_LEGS: 129,
-  LEATHER_BOOTS: 130,
-  IRON_LEGS: 131,
-  IRON_BOOTS: 132,
-  DIAMOND: 133,
-  DIAMOND_PICKAXE: 134,
-  DIAMOND_AXE: 135,
-  DIAMOND_SHOVEL: 136,
-  DIAMOND_SWORD: 137,
-  DIAMOND_HELMET: 138,
-  DIAMOND_CHEST: 139,
-  DIAMOND_LEGS: 140,
-  DIAMOND_BOOTS: 141,
-  TORCH: 142,
-  DOOR: 143,
-  LADDER: 144,
-  CHEST_ITEM: 145,
-  BED: 146,
-  BONE: 147,
-  ARROW: 148,
-  STRING: 149,
-  GUNPOWDER: 150,
-  RAW_CHICKEN: 151,
-  COOKED_CHICKEN: 152,
-  FEATHER: 153,
-  BOW: 154,
-  WHEAT_SEEDS: 155,
-  WHEAT: 156,
-  BREAD: 157,
-  WOODEN_HOE: 158,
-  STONE_HOE: 159,
-  IRON_HOE: 160,
-  BONE_MEAL: 161,
-  CARROT: 162,
-  FLINT_AND_STEEL: 163,
-  MINECART: 164,
-  ENDER_PEARL: 165,
-  SPIDER_EYE: 166,
-  GLOWSTONE_DUST: 167,
-  NETHER_STAR: 168,
-  BLAZE_ROD: 169,
-  BOSS_SIGIL: 170,
-  GOLDEN_APPLE: 171,
+  APPLE: 1000,
+  STICK: 1001,
+  WOODEN_PICKAXE: 1002,
+  WOODEN_AXE: 1003,
+  WOODEN_SHOVEL: 1004,
+  COAL: 1005,
+  RAW_IRON: 1006,
+  STONE_PICKAXE: 1007,
+  STONE_AXE: 1008,
+  STONE_SHOVEL: 1009,
+  WOODEN_SWORD: 1010,
+  STONE_SWORD: 1011,
+  IRON_INGOT: 1012,
+  GOLD_INGOT: 1013,
+  REDSTONE: 1014,
+  RAW_PORK: 1015,
+  COOKED_PORK: 1016,
+  RAW_BEEF: 1017,
+  COOKED_BEEF: 1018,
+  LEATHER: 1019,
+  WOOL: 1020,
+  LEATHER_HELMET: 1021,
+  LEATHER_CHEST: 1022,
+  IRON_HELMET: 1023,
+  IRON_CHEST: 1024,
+  IRON_PICKAXE: 1025,
+  IRON_AXE: 1026,
+  IRON_SHOVEL: 1027,
+  IRON_SWORD: 1028,
+  LEATHER_LEGS: 1029,
+  LEATHER_BOOTS: 1030,
+  IRON_LEGS: 1031,
+  IRON_BOOTS: 1032,
+  DIAMOND: 1033,
+  DIAMOND_PICKAXE: 1034,
+  DIAMOND_AXE: 1035,
+  DIAMOND_SHOVEL: 1036,
+  DIAMOND_SWORD: 1037,
+  DIAMOND_HELMET: 1038,
+  DIAMOND_CHEST: 1039,
+  DIAMOND_LEGS: 1040,
+  DIAMOND_BOOTS: 1041,
+  TORCH: 1042,
+  DOOR: 1043,
+  LADDER: 1044,
+  CHEST_ITEM: 1045,
+  BED: 1046,
+  BONE: 1047,
+  ARROW: 1048,
+  STRING: 1049,
+  GUNPOWDER: 1050,
+  RAW_CHICKEN: 1051,
+  COOKED_CHICKEN: 1052,
+  FEATHER: 1053,
+  BOW: 1054,
+  WHEAT_SEEDS: 1055,
+  WHEAT: 1056,
+  BREAD: 1057,
+  WOODEN_HOE: 1058,
+  STONE_HOE: 1059,
+  IRON_HOE: 1060,
+  BONE_MEAL: 1061,
+  CARROT: 1062,
+  FLINT_AND_STEEL: 1063,
+  MINECART: 1064,
+  ENDER_PEARL: 1065,
+  SPIDER_EYE: 1066,
+  GLOWSTONE_DUST: 1067,
+  NETHER_STAR: 1068,
+  BLAZE_ROD: 1069,
+  BOSS_SIGIL: 1070,
+  GOLDEN_APPLE: 1071,
 };
 
 // Per-block definition. `top`/`bottom`/`side` are atlas tile indices.
@@ -407,14 +408,14 @@ export const BLOCKS = {
   [BLOCK.GOLD_BLOCK]: { name: 'Gold Block', top: TILES.GOLD_BLOCK, bottom: TILES.GOLD_BLOCK, side: TILES.GOLD_BLOCK, solid: true, transparent: false, hardness: 3.0, tool: 'pickaxe', minTier: 2 },
   [BLOCK.REDSTONE_BLOCK]: { name: 'Redstone Block', top: TILES.REDSTONE_BLOCK, bottom: TILES.REDSTONE_BLOCK, side: TILES.REDSTONE_BLOCK, solid: true, transparent: false, hardness: 2.2, tool: 'pickaxe', minTier: 2 },
   [BLOCK.CACTUS]: { name: 'Cactus', top: TILES.CACTUS, bottom: TILES.CACTUS, side: TILES.CACTUS, solid: true, transparent: false, hardness: 0.55, tool: 'axe' },
-  [BLOCK.DIAMOND_ORE]: { name: 'Diamond Ore', top: TILES.DIAMOND_ORE, bottom: TILES.DIAMOND_ORE, side: TILES.DIAMOND_ORE, solid: true, transparent: false, hardness: 3.0, tool: 'pickaxe', minTier: 3, drops: [{ id: 133, count: 1 }] },
+  [BLOCK.DIAMOND_ORE]: { name: 'Diamond Ore', top: TILES.DIAMOND_ORE, bottom: TILES.DIAMOND_ORE, side: TILES.DIAMOND_ORE, solid: true, transparent: false, hardness: 3.0, tool: 'pickaxe', minTier: 3, drops: [{ id: ITEM.DIAMOND, count: 1 }] },
   [BLOCK.DIAMOND_BLOCK]: { name: 'Diamond Block', top: TILES.DIAMOND_BLOCK, bottom: TILES.DIAMOND_BLOCK, side: TILES.DIAMOND_BLOCK, solid: true, transparent: false, hardness: 3.5, tool: 'pickaxe', minTier: 3 },
   [BLOCK.TORCH]: { name: 'Torch', top: TILES.TORCH, bottom: TILES.TORCH, side: TILES.TORCH, solid: false, transparent: true, hardness: 0.01, model: 'torch', light: 14 },
-  [BLOCK.DOOR_BOTTOM]: { name: 'Door', top: TILES.DOOR_BOTTOM, bottom: TILES.DOOR_BOTTOM, side: TILES.DOOR_BOTTOM, solid: true, transparent: true, hardness: 0.6, tool: 'axe', model: 'door', drops: [{ id: 143, count: 1 }] },
+  [BLOCK.DOOR_BOTTOM]: { name: 'Door', top: TILES.DOOR_BOTTOM, bottom: TILES.DOOR_BOTTOM, side: TILES.DOOR_BOTTOM, solid: true, transparent: true, hardness: 0.6, tool: 'axe', model: 'door', drops: [{ id: ITEM.DOOR, count: 1 }] },
   [BLOCK.DOOR_TOP]: { name: 'Door', top: TILES.DOOR_TOP, bottom: TILES.DOOR_TOP, side: TILES.DOOR_TOP, solid: true, transparent: true, hardness: 0.6, tool: 'axe', model: 'door', drops: [] },
   [BLOCK.LADDER]: { name: 'Ladder', top: TILES.LADDER, bottom: TILES.LADDER, side: TILES.LADDER, solid: false, transparent: true, hardness: 0.3, tool: 'axe', model: 'cross', climbable: true },
   [BLOCK.CHEST]: { name: 'Chest', top: TILES.CHEST_TOP, bottom: TILES.CHEST_SIDE, side: TILES.CHEST_FRONT, solid: true, transparent: false, hardness: 0.9, tool: 'axe' },
-  [BLOCK.BED_HEAD]: { name: 'Bed', top: TILES.BED_TOP, bottom: TILES.PLANK, side: TILES.BED_SIDE, solid: true, transparent: false, hardness: 0.3, drops: [{ id: 146, count: 1 }] },
+  [BLOCK.BED_HEAD]: { name: 'Bed', top: TILES.BED_TOP, bottom: TILES.PLANK, side: TILES.BED_SIDE, solid: true, transparent: false, hardness: 0.3, drops: [{ id: ITEM.BED, count: 1 }] },
   [BLOCK.BED_FOOT]: { name: 'Bed', top: TILES.BED_TOP, bottom: TILES.PLANK, side: TILES.BED_SIDE, solid: true, transparent: false, hardness: 0.3, drops: [] },
   [BLOCK.FLOWER_RED]: { name: 'Red Flower', top: TILES.FLOWER_RED, bottom: TILES.FLOWER_RED, side: TILES.FLOWER_RED, solid: false, transparent: true, hardness: 0.01, model: 'cross' },
   [BLOCK.FLOWER_YELLOW]: { name: 'Yellow Flower', top: TILES.FLOWER_YELLOW, bottom: TILES.FLOWER_YELLOW, side: TILES.FLOWER_YELLOW, solid: false, transparent: true, hardness: 0.01, model: 'cross' },
@@ -436,7 +437,7 @@ export const BLOCKS = {
   [BLOCK.REDSTONE_TORCH]: { name: 'Redstone Torch', top: TILES.REDSTONE_TORCH, bottom: TILES.REDSTONE_TORCH, side: TILES.REDSTONE_TORCH, solid: false, transparent: true, hardness: 0.01, model: 'torch', light: 7 },
   // Open door halves: non-solid so the player can walk through, drawn as a thin
   // slab rotated against the side of the cell (doorOpen model in chunk.js).
-  [BLOCK.DOOR_BOTTOM_OPEN]: { name: 'Door', top: TILES.DOOR_BOTTOM, bottom: TILES.DOOR_BOTTOM, side: TILES.DOOR_BOTTOM, solid: false, transparent: true, hardness: 0.6, tool: 'axe', model: 'doorOpen', drops: [{ id: 143, count: 1 }] },
+  [BLOCK.DOOR_BOTTOM_OPEN]: { name: 'Door', top: TILES.DOOR_BOTTOM, bottom: TILES.DOOR_BOTTOM, side: TILES.DOOR_BOTTOM, solid: false, transparent: true, hardness: 0.6, tool: 'axe', model: 'doorOpen', drops: [{ id: ITEM.DOOR, count: 1 }] },
   [BLOCK.DOOR_TOP_OPEN]: { name: 'Door', top: TILES.DOOR_TOP, bottom: TILES.DOOR_TOP, side: TILES.DOOR_TOP, solid: false, transparent: true, hardness: 0.6, tool: 'axe', model: 'doorOpen', drops: [] },
   // Farmland: tilled dirt made with a hoe. Breaking it reverts to dirt.
   [BLOCK.FARMLAND]: { name: 'Farmland', top: TILES.FARMLAND, bottom: TILES.DIRT, side: TILES.DIRT, solid: true, transparent: false, hardness: 0.45, tool: 'shovel', drops: [{ id: BLOCK.DIRT, count: 1 }] },
@@ -774,6 +775,25 @@ export const BIOMES = {
   [BIOME.FLOWER_FOREST]: { name: 'Flower Forest', surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.035, flowerChance: 0.12 },
 };
 export function biomeDef(id) { return BIOMES[id]; }
+
+// ---- Dimensions ---------------------------------------------------------------
+// One descriptor per dimension. `hasSky` drives lighting (sun seeding) and sky
+// rendering; `editKeyPrefix` namespaces per-block container keys (furnaces,
+// chests) so two dimensions never collide on the same coordinates. The end is
+// declared ahead of time but unused until it ships.
+export const DIMENSIONS = {
+  overworld: { id: 'overworld', hasSky: true,  editKeyPrefix: '' },
+  nether:    { id: 'nether',    hasSky: false, editKeyPrefix: 'N|' },
+  end:       { id: 'end',       hasSky: false, editKeyPrefix: 'E|' },
+};
+
+// ---- Edit-diff encoding -------------------------------------------------------
+// Player edits are stored as one number per voxel: low 12 bits = block id
+// (0..4095), high bits = metadata. Old saves stored the bare id, which decodes
+// to meta 0 automatically.
+export function encodeEdit(id, meta = 0) { return (id & 4095) | (meta << 12); }
+export function decodeEditId(v) { return v & 4095; }
+export function decodeEditMeta(v) { return v >>> 12; }
 
 // ---- Block helpers ----------------------------------------------------------
 export function isSolid(id) {

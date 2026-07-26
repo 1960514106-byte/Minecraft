@@ -26,7 +26,9 @@ const localIndex = (x, y, z) => x + CHUNK_SIZE * (z + CHUNK_SIZE * y);
 const idx = (x, y, z) => x + W * (z + W * y);
 
 // Scratch buffers reused across calls (single-threaded main loop / worker).
-let blocks = new Uint8Array(VOL);
+// `blocks` mirrors chunk data (uint16: block ids can exceed 255); light levels
+// stay 0..15 so the sky/blk fields remain bytes.
+let blocks = new Uint16Array(VOL);
 let sky = new Uint8Array(VOL);
 let blk = new Uint8Array(VOL);
 let queue = new Int32Array(VOL);

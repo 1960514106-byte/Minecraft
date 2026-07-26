@@ -35,7 +35,7 @@ import {
   HOTBAR_SIZE, INVENTORY_SIZE, APPLE_DROP_CHANCE,
   SEED_DROP_CHANCE, WHEAT_GROW_CHANCE, toolKind, nextCropStage, isCropBlock,
   itemMaxDurability, placeableBlock, isClimbable, isSolid, isRail, stackEnchant,
-  xpFromMining, xpFromKill, isEnchantable, ENCHANTMENTS,
+  xpFromMining, xpFromKill, isEnchantable, ENCHANTMENTS, decodeEditId,
 } from './config.js';
 
 // ---- Renderer ---------------------------------------------------------------
@@ -112,9 +112,11 @@ function ensureNether() {
   return netherWorld;
 }
 
-const SAVE_VERSION = 7;
+const SAVE_VERSION = 8;
+// loadGame() already ran the storage.js migration chain, so any accepted save
+// is in the current format regardless of the version it was written with.
 const save = await loadGame();
-const hasSave = !!(save && (save.version >= 1 && save.version <= SAVE_VERSION) && save.seed === WORLD_SEED);
+const hasSave = !!(save && save.version === SAVE_VERSION && save.seed === WORLD_SEED);
 if (hasSave && save.edits) overworld.loadEdits(save.edits);
 if (hasSave && save.netherEdits) ensureNether().loadEdits(save.netherEdits);
 if (hasSave && save.dimension === 'nether') {
@@ -124,9 +126,13 @@ if (hasSave && save.dimension === 'nether') {
 }
 if (hasSave && typeof save.time === 'number') dayNight.t = save.time;
 
-// Per-dimension entity buckets: drops and minecarts of the INACTIVE dimension
-// are parked here and swapped on portal travel.
-const otherDim = (hasSave && save.otherDimension) ? save.otherDimension : { drops: null, minecarts: null };
+// Per-dimension entity buckets keyed by dimension id: drops and minecarts of
+// every INACTIVE dimension are parked here and swapped on portal travel (the
+// active dimension's entities live in the drops/minecarts managers instead).
+const parkedByDim = new Map();
+if (hasSave && save.parked) {
+  for (const dimId in save.parked) parkedByDim.set(dimId, save.parked[dimId]);
+}
 // Where the player last stood in each dimension (portal return points).
 let portalCooldown = 0;
 let portalTimer = 0;
@@ -198,7 +204,7 @@ redstoneOver.onSound = (name) => feedback.play(name);
 // Per-block containers (furnaces/chests) key by position; the nether prefixes
 // its keys so the two dimensions can't collide on the same coordinates.
 function dimKey(x, y, z) {
-  return (world.skyless ? 'N|' : '') + `${x},${y},${z}`;
+  return world.dim.editKeyPrefix + `${x},${y},${z}`;
 }
 function parseDimKey(key) {
   const isNether = key.startsWith('N|');
@@ -273,11 +279,12 @@ function switchDimension(target) {
       entry.mesh = null;
     }
   }
-  // Park loose entities per dimension and restore the other bucket.
-  const parkedDrops = otherDim.drops;
-  const parkedCarts = otherDim.minecarts;
-  otherDim.drops = drops.serialize();
-  otherDim.minecarts = minecarts.serialize();
+  // Park loose entities per dimension and restore the target's bucket.
+  parkedByDim.set(world.dim.id, { drops: drops.serialize(), minecarts: minecarts.serialize() });
+  const parked = parkedByDim.get(target.dim.id) || { drops: null, minecarts: null };
+  parkedByDim.delete(target.dim.id);
+  const parkedDrops = parked.drops;
+  const parkedCarts = parked.minecarts;
   for (let i = drops.drops.length - 1; i >= 0; i--) drops.removeAt(i);
   for (let i = minecarts.carts.length - 1; i >= 0; i--) minecarts.remove(minecarts.carts[i]);
   // Mobs don't travel between dimensions.
@@ -547,11 +554,11 @@ function gatherState() {
     seed: WORLD_SEED,
     time: dayNight.t,
     slot: selected,
-    dimension: world.skyless ? 'nether' : 'overworld',
+    dimension: world.dim.id,
     player: player.serialize(),
     edits: overworld.serializeEdits(),
     netherEdits: netherWorld ? netherWorld.serializeEdits() : undefined,
-    otherDimension: { drops: otherDim.drops, minecarts: otherDim.minecarts },
+    parked: Object.fromEntries(parkedByDim),
     survival: survival.serialize(),
     inventory: inventory.serialize(),
     drops: drops.serialize(),
@@ -2508,8 +2515,8 @@ function animate() {
     cropTickTimer = 0;
     const grow = [];
     for (const [ck, inner] of world.edits) {
-      for (const [lk, id] of inner) {
-        const next = nextCropStage(id);
+      for (const [lk, v] of inner) {
+        const next = nextCropStage(decodeEditId(v));
         if (next && Math.random() < WHEAT_GROW_CHANCE) {
           const [cx, cz] = ck.split(',').map(Number);
           const [lx, y, lz] = lk.split(',').map(Number);
