@@ -166,6 +166,8 @@ export const BLOCK = {
   // ---- Phase 5: worldgen 2.0 ores (132+) --------------------------------------
   EMERALD_ORE: 132,        // mountains-only; future villager trade currency
   LAPIS_ORE: 133,          // deep ore; drops 4-8 lapis (future enchanting currency)
+  // ---- Phase 8: villages & trading (134+) --------------------------------------
+  EMERALD_BLOCK: 134,      // storage block: 9 emeralds <-> 1 block (shapeless)
 };
 
 // Wool blocks in vanilla colour order, plus the RGB used by the texture
@@ -518,6 +520,8 @@ export const TILES = {
   LAPIS_ORE:      248,
   EMERALD:        249,
   LAPIS:          250,
+  // ---- Phase 8 (251+): villages & trading -----------------------------------------
+  EMERALD_BLOCK:  251,
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -840,6 +844,8 @@ export const BLOCKS = {
   // ---- Phase 5: worldgen 2.0 ores -------------------------------------------------
   [BLOCK.EMERALD_ORE]: { name: 'Emerald Ore', top: TILES.EMERALD_ORE, bottom: TILES.EMERALD_ORE, side: TILES.EMERALD_ORE, solid: true, transparent: false, hardness: 2.6, tool: 'pickaxe', minTier: 2, drops: [{ id: ITEM.EMERALD, count: 1 }] },
   [BLOCK.LAPIS_ORE]: { name: 'Lapis Lazuli Ore', top: TILES.LAPIS_ORE, bottom: TILES.LAPIS_ORE, side: TILES.LAPIS_ORE, solid: true, transparent: false, hardness: 2.4, tool: 'pickaxe', minTier: 2, drops: [{ id: ITEM.LAPIS, count: 4, max: 8 }] }, // count..max rolled by blockDrop()
+  // ---- Phase 8: emerald storage block (decorative; shapeless <-> 9 emeralds) -------
+  [BLOCK.EMERALD_BLOCK]: { name: 'Emerald Block', top: TILES.EMERALD_BLOCK, bottom: TILES.EMERALD_BLOCK, side: TILES.EMERALD_BLOCK, solid: true, transparent: false, hardness: 3.0, tool: 'pickaxe', minTier: 2 },
 };
 
 // Blocks selectable in the hotbar (1..N keys), in order.

@@ -35,6 +35,7 @@ import { MinecartManager } from './minecart.js';
 import { BoatManager } from './boat.js';
 import { FluidSim } from './fluids.js';
 import { rollLoot } from './structures.js';
+import { PROFESSIONS, unlockedTrades, tradeTierFromUses, MAX_TRADE_TIER, professionForPos } from './trades.js';
 import { tryLightPortal, collapsePortalAt, buildArrivalPortal, findPortalNear } from './portal.js';
 import { getMode, setMode, isCreative, setOnModeChange } from './gamemode.js';
 import {
@@ -142,7 +143,7 @@ function ensureNether() {
   return netherWorld;
 }
 
-const SAVE_VERSION = 14;
+const SAVE_VERSION = 15;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
@@ -1129,7 +1130,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       const m = mobHit.mob;
       const heldNow = inventory.get(selected);
       if (m.type === 'villager') {
-        openTradeScreen();
+        openTradeScreen(m);
         return;
       }
       if (m.type === 'wolf' && !m.tame && heldNow && heldNow.id === ITEM.BONE) {
@@ -2408,6 +2409,14 @@ if (new URLSearchParams(location.search).has('debug')) {
     get heldCursor() { return held; },
     setSelected: (i) => setSelected(i),
     get selected() { return selected; },
+    // ---- Phase 8: villages & trading handles -----------------------------------
+    PROFESSIONS,
+    professionForPos,
+    get villageCenters() { return world.villageCenters; },
+    openTrade: (m) => openTradeScreen(m),
+    closeTrade: () => closeTradeScreen(),
+    get tradeOpen() { return tradeOpen; },
+    get tradingVillager() { return tradingVillager; },
   };
 }
 
@@ -3393,21 +3402,17 @@ function closeAnvil() {
 }
 
 // ---- Trading screen -----------------------------------------------------------
+// Phase 8: trades come from the villager's PROFESSION and unlocked TIER
+// (js/trades.js) instead of the old global table. Trading levels the villager
+// up: every 4 completed trades unlock the next tier (max 3).
 const tradeScreenEl = document.getElementById('tradeScreen');
 const tradeListEl = document.getElementById('tradeList');
+const tradeTitleEl = tradeScreenEl.querySelector('h3');
 let tradeOpen = false;
+let tradingVillager = null; // the mob whose screen is open
 
-const TRADES = [
-  { give: { id: ITEM.COAL, count: 10 }, get: { id: ITEM.IRON_INGOT, count: 1 } },
-  { give: { id: ITEM.RAW_IRON, count: 4 }, get: { id: ITEM.GOLD_INGOT, count: 1 } },
-  { give: { id: ITEM.IRON_INGOT, count: 3 }, get: { id: ITEM.DIAMOND, count: 1 } },
-  { give: { id: ITEM.LEATHER, count: 4 }, get: { id: ITEM.IRON_INGOT, count: 1 } },
-  { give: { id: ITEM.STRING, count: 8 }, get: { id: ITEM.IRON_INGOT, count: 1 } },
-  { give: { id: ITEM.GOLD_INGOT, count: 2 }, get: { id: ITEM.APPLE, count: 8 } },
-  { give: { id: ITEM.DIAMOND, count: 1 }, get: { id: BLOCK.ENCHANTING_TABLE, count: 1 } },
-];
-
-function openTradeScreen() {
+function openTradeScreen(m) {
+  tradingVillager = m || null;
   tradeOpen = true;
   if (player.controls.isLocked) player.controls.unlock();
   overlay.classList.add('hidden');
@@ -3417,23 +3422,58 @@ function openTradeScreen() {
 
 function closeTradeScreen() {
   tradeOpen = false;
+  tradingVillager = null;
   tradeScreenEl.classList.add('hidden');
   if (survival.alive) overlay.classList.remove('hidden');
 }
 
+// One icon+count cell (iconStyle sprite pattern shared with the hotbar).
+function tradeIcon(entry) {
+  const span = document.createElement('span');
+  span.className = 'trade-icon';
+  iconStyle(span, entry.id, 20);
+  span.dataset.tip = `${entry.count}x ${itemDef(entry.id).name}`;
+  const count = document.createElement('span');
+  count.className = 'trade-count';
+  count.textContent = entry.count;
+  span.appendChild(count);
+  return span;
+}
+
 function refreshTradeScreen() {
+  const m = tradingVillager;
   tradeListEl.innerHTML = '';
-  for (const trade of TRADES) {
-    const giveName = itemDef(trade.give.id).name;
-    const getName = itemDef(trade.get.id).name;
-    const hasEnough = inventory.count(trade.give.id) >= trade.give.count;
+  if (!m) return;
+  const prof = PROFESSIONS[m.profession] || PROFESSIONS.farmer;
+  const tier = m.tradeTier || 1;
+  tradeTitleEl.textContent =
+    `${prof.name.toUpperCase()} — TIER ${tier}${tier >= MAX_TRADE_TIER ? ' (MAX)' : ''}`;
+  for (const trade of unlockedTrades(m.profession, tier)) {
+    const hasAll = trade.give.every((g) => inventory.count(g.id) >= g.count);
     const div = document.createElement('div');
-    div.className = 'trade-option' + (hasEnough ? '' : ' disabled');
-    div.innerHTML = `<span>${trade.give.count}x ${giveName}</span><span>→ ${trade.get.count}x ${getName}</span>`;
-    if (hasEnough) {
+    div.className = 'trade-option' + (hasAll ? '' : ' disabled');
+    const left = document.createElement('span');
+    left.className = 'trade-side';
+    for (const g of trade.give) left.appendChild(tradeIcon(g));
+    const arrow = document.createElement('span');
+    arrow.className = 'trade-arrow';
+    arrow.textContent = '→';
+    const right = document.createElement('span');
+    right.className = 'trade-side';
+    right.appendChild(tradeIcon(trade.get));
+    const tierTag = document.createElement('span');
+    tierTag.className = 'trade-tier';
+    tierTag.textContent = `T${trade.tier}`;
+    div.append(left, arrow, right, tierTag);
+    if (hasAll) {
       div.onclick = () => {
-        inventory.remove(trade.give.id, trade.give.count);
+        for (const g of trade.give) inventory.remove(g.id, g.count);
         inventory.add(trade.get.id, trade.get.count);
+        const tieredUp = mobs.recordTrade(m);
+        if (tieredUp) {
+          survival._setMessage(`${prof.name} levels up! Tier ${m.tradeTier} trades unlocked`);
+          feedback.play('click');
+        }
         achievements.trigger({ type: 'trade' });
         feedback.play('pickup');
         refreshTradeScreen();

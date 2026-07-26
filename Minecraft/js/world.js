@@ -137,6 +137,10 @@ export class World {
     // saved): loot chests waiting for their first open, and mob spawner types.
     this.structureLoot = new Map();     // "x,y,z" -> loot table kind
     this.structureSpawners = new Map(); // "x,y,z" -> mob type
+    // Phase 8: village well centres, rebuilt deterministically as chunks
+    // generate (not saved). mobs.js uses them for village-biased villager
+    // spawning, iron-golem guardians and the night-siege spawn multiplier.
+    this.villageCenters = new Map();    // "x,z" -> { x, y, z }
 
     // Optional cell-change callback (x, y, z), fired by setBlock/setBlocks
     // whenever a cell's id or meta actually changes. main.js points it at the

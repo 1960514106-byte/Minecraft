@@ -475,3 +475,51 @@ Worker mesh pipeline:
       for sources; flowing water still renders sloped per-cell tops).
 - [ ] Phase 6/7 contraptions (redstone, brewing) still pass their browser
       checks at height 128.
+
+## Phase 8 — Villages & trading upgrade (SAVE_VERSION 15)
+
+Automated: `node test/smoke.mjs` covers the trade-table integrity (5
+professions × 3 non-empty tiers, every give/get id defined, EMERALD on one
+side of every trade, counts 1–64), the tier-progression math (tier up every 4
+trades, cap 3), the deterministic position→profession hash, the emerald block
+crafting round-trip (9 emeralds ↔ 1 block), emerald in the village +
+blacksmith loot tables, `villageLayout` determinism/variants over a mock
+TerrainGen world, and the v14→v15 migration (villagers gain
+profession/tradeTier/tradeUses defaults; existing fields untouched).
+
+Villager professions + trading:
+- [ ] Villagers wear profession-tinted robes: farmer straw, librarian white,
+      blacksmith dark gray, cleric purple, butcher red-brown.
+- [ ] Right-clicking a villager opens the trade screen titled with its
+      profession + tier; trades show give→get item icons with counts.
+- [ ] A trade is greyed out until the inventory holds all inputs; clicking a
+      live trade consumes the inputs, grants the output, plays a sound and
+      fires the "Fair Deal" achievement.
+- [ ] After 4 trades with the same villager, a tier-up message appears and
+      the tier-2 rows join the list (tier 3 after 8; "MAX" in the title).
+- [ ] Profession/tier/uses survive save + reload; a pre-v15 save's villagers
+      get professions on load (deterministic from their position).
+
+Emerald economy:
+- [ ] Mining emerald ore (mountains, stone pick) drops an emerald + 4 XP.
+- [ ] Village house/library chests can contain 1–3 emeralds; blacksmith
+      chests hold iron/emerald-flavoured loot.
+- [ ] 9 emeralds craft (3x3, shapeless) into an emerald block; the block
+      converts back to 9 emeralds in the 2x2 grid; block places/mines/
+      minimaps like the other gem blocks.
+
+Villages 2.0 (`?debug=1`, `__game.villageCenters`):
+- [ ] Generated villages mix plain houses with libraries (bookshelves
+      inside), blacksmith forges (furnace + anvil + chest) and cobblestone
+      church towers; some farms grow carrots instead of wheat.
+- [ ] `__game.villageCenters` registers each well centre as chunks load; the
+      well keeps a clear gravel apron beside it.
+- [ ] Near a village (≤48 blocks of the well) villagers dominate passive
+      spawns (weight ×4); away from villages the old mix returns.
+- [ ] With ≥2 villagers near a well and no golem within 32, an iron golem
+      appears by the well within ~60 s (`mobs._golemTimer = 0` to force the
+      check) and attacks hostiles that wander in.
+- [ ] At night within 48 of a village centre, hostile spawn attempts come
+      twice as fast (zombie-siege lite); the hostile cap is unchanged.
+- [ ] Debug handles: `PROFESSIONS`, `professionForPos`, `villageCenters`,
+      `openTrade(mob)` / `closeTrade()` / `tradeOpen` / `tradingVillager`.

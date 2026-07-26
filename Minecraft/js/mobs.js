@@ -12,6 +12,7 @@ import {
   MOB_DEFS, AI_NAMES, mobDef, spawnCandidates, weightedPick, rollMobDrops,
   xpForMob, breedFoodOf,
 } from './mobdefs.js';
+import { professionForPos, tradeTierFromUses, MAX_TRADE_TIER } from './trades.js';
 
 const MAX_HOSTILE = 5;
 const MAX_PASSIVE = 4;
@@ -36,6 +37,14 @@ const MAX_WOLVES = 4;
 const SPAWNER_INTERVAL = 5;
 const SPAWNER_RANGE = 16;
 const SPAWNER_CAP = 3;
+// Phase 8: villages. Within VILLAGE_RADIUS of a well centre villager spawn
+// weight is multiplied, night hostile pressure doubles (zombie-siege lite),
+// and every GOLEM_CHECK_INTERVAL a village with >= 2 villagers and no golem
+// within GOLEM_HOME_RADIUS of its well musters one iron golem.
+const VILLAGE_RADIUS = 48;
+const VILLAGER_VILLAGE_WEIGHT = 4;
+const GOLEM_CHECK_INTERVAL = 60;
+const GOLEM_HOME_RADIUS = 32;
 
 export class MobManager {
   constructor(scene, world, state = null) {
@@ -73,6 +82,12 @@ export class MobManager {
       villagerRobe: new THREE.MeshLambertMaterial({ color: 0x8b5e3c }),
       villagerHead: new THREE.MeshLambertMaterial({ color: 0xd4a574 }),
       villagerNose: new THREE.MeshLambertMaterial({ color: 0xb8906a }),
+      // Phase 8: per-profession villager robe tints (shared materials).
+      robeFarmer: new THREE.MeshLambertMaterial({ color: 0xc9a24b }),      // straw
+      robeLibrarian: new THREE.MeshLambertMaterial({ color: 0xe4e2da }),   // white
+      robeBlacksmith: new THREE.MeshLambertMaterial({ color: 0x44444c }),  // dark gray
+      robeCleric: new THREE.MeshLambertMaterial({ color: 0x7a3fa0 }),      // purple
+      robeButcher: new THREE.MeshLambertMaterial({ color: 0x94503a }),     // red-brown
       spiderBody: new THREE.MeshLambertMaterial({ color: 0x2a2226 }),
       spiderEye: new THREE.MeshLambertMaterial({ color: 0xc42222, emissive: 0x550808 }),
       endermanBody: new THREE.MeshLambertMaterial({ color: 0x161018 }),
@@ -152,7 +167,7 @@ export class MobManager {
       chicken: () => this.makeChickenMesh(),
       skeleton: () => this.makeSkeletonMesh(),
       creeper: () => this.makeCreeperMesh(),
-      villager: () => this.makeVillagerMesh(),
+      villager: (extra) => this.makeVillagerMesh(extra && extra.profession),
       spider: () => this.makeSpiderMesh(),
       enderman: () => this.makeEndermanMesh(),
       wolf: () => this.makeWolfMesh(),
@@ -191,6 +206,11 @@ export class MobManager {
             size: m.size || 0,
             saddled: !!m.saddled,
             effects: Array.isArray(m.effects) ? m.effects : null,
+            // Phase 8: villager profession/tier survive save-load (missing
+            // fields re-roll deterministically from position in addMob).
+            profession: m.profession || null,
+            tradeTier: m.tradeTier || 1,
+            tradeUses: m.tradeUses || 0,
           });
         }
       }
@@ -253,10 +273,10 @@ export class MobManager {
     return g;
   }
 
-  makeMobMesh(type) {
+  makeMobMesh(type, extra = {}) {
     const def = mobDef(type);
     const builder = this.meshBuilders[def.mesh] || this.meshBuilders.zombie;
-    return builder();
+    return builder(extra);
   }
 
   makeChickenMesh() {
@@ -313,7 +333,20 @@ export class MobManager {
     return g;
   }
 
-  makeVillagerMesh() {
+  // Phase 8: the robe is tinted by profession (shared per-profession
+  // materials); unknown/absent professions keep the classic brown robe.
+  villagerRobeMaterial(profession) {
+    const map = {
+      farmer: this.materials.robeFarmer,
+      librarian: this.materials.robeLibrarian,
+      blacksmith: this.materials.robeBlacksmith,
+      cleric: this.materials.robeCleric,
+      butcher: this.materials.robeButcher,
+    };
+    return map[profession] || this.materials.villagerRobe;
+  }
+
+  makeVillagerMesh(profession = null) {
     const g = new THREE.Group();
     const part = (geo, mat, x, y, z) => {
       const mesh = new THREE.Mesh(geo, mat);
@@ -321,11 +354,12 @@ export class MobManager {
       mesh.position.set(x, y, z);
       g.add(mesh);
     };
+    const robe = this.villagerRobeMaterial(profession);
     part(new THREE.BoxGeometry(0.5, 0.5, 0.5), this.materials.villagerHead, 0, 1.55, 0);
     part(new THREE.BoxGeometry(0.14, 0.18, 0.12), this.materials.villagerNose, 0, 1.46, 0.3);
-    part(new THREE.BoxGeometry(0.55, 0.75, 0.4), this.materials.villagerRobe, 0, 0.95, 0);
-    part(new THREE.BoxGeometry(0.18, 0.6, 0.18), this.materials.villagerRobe, -0.22, 0.3, 0);
-    part(new THREE.BoxGeometry(0.18, 0.6, 0.18), this.materials.villagerRobe, 0.22, 0.3, 0);
+    part(new THREE.BoxGeometry(0.55, 0.75, 0.4), robe, 0, 0.95, 0);
+    part(new THREE.BoxGeometry(0.18, 0.6, 0.18), robe, -0.22, 0.3, 0);
+    part(new THREE.BoxGeometry(0.18, 0.6, 0.18), robe, 0.22, 0.3, 0);
     return g;
   }
 
@@ -598,10 +632,15 @@ export class MobManager {
 
   addMob(pos, type = 'zombie', health, extra = {}) {
     const def = mobDef(type);
+    // Phase 8: villagers roll a deterministic profession from their spawn
+    // position unless one was passed (restore / debug spawns).
+    if (type === 'villager' && !extra.profession) {
+      extra = { ...extra, profession: professionForPos(pos.x, pos.z) };
+    }
     // Sized mobs (slimes/magma cubes): per-size hp, mesh scale 3/2/1.
     const size = def.sizes ? (def.sizes[extra.size] ? extra.size : 3) : 0;
     const maxHp = size ? def.sizes[size].hp : def.hp;
-    const mesh = this.makeMobMesh(type);
+    const mesh = this.makeMobMesh(type, extra);
     mesh.position.copy(pos);
     this.scene.add(mesh);
     const mob = {
@@ -643,6 +682,10 @@ export class MobManager {
       effects: Array.isArray(extra.effects)
         ? extra.effects.filter((e) => e && e.id && e.t > 0).map((e) => ({ id: e.id, amp: e.amp || 1, t: e.t, tick: 0 }))
         : [],
+      // Phase 8: villager trading state (null/0 for every other type).
+      profession: extra.profession || null,
+      tradeTier: Math.max(1, Math.min(MAX_TRADE_TIER, extra.tradeTier || 1)),
+      tradeUses: Math.max(0, extra.tradeUses || 0),
     };
     if (mob.baby) mesh.scale.setScalar(0.5);
     if (size) mesh.scale.setScalar(0.35 + 0.32 * size); // 1 -> 0.67, 2 -> 0.99, 3 -> 1.31
@@ -955,7 +998,11 @@ export class MobManager {
     } else if (night) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.spawnTimer = SPAWN_INTERVAL;
+        // Zombie-siege lite (Phase 8): hostile spawn pressure doubles while
+        // the player is within VILLAGE_RADIUS of a village centre at night
+        // (spawn attempts come twice as often; the cap is unchanged).
+        const siege = !!this.nearestVillageCenter(playerPos, VILLAGE_RADIUS);
+        this.spawnTimer = siege ? SPAWN_INTERVAL / 2 : SPAWN_INTERVAL;
         if (this.countType(false) < MAX_HOSTILE) {
           const pick = weightedPick(this.spawnLists.overworldNight);
           if (pick) this.spawnNear(playerPos, pick.type);
@@ -979,7 +1026,14 @@ export class MobManager {
         if (Math.random() < 0.12 && wolves < MAX_WOLVES) {
           this.spawnNear(playerPos, 'wolf');
         } else if (this.countType(true) < MAX_PASSIVE) {
-          const pick = weightedPick(this.spawnLists.overworldDay);
+          // Phase 8: near a village centre villagers dominate the passive
+          // picks (weight x4); horses/wolves keep their normal weights.
+          let dayList = this.spawnLists.overworldDay;
+          if (this.nearestVillageCenter(playerPos, VILLAGE_RADIUS)) {
+            dayList = dayList.map((c) => (c.type === 'villager'
+              ? { ...c, weight: c.weight * VILLAGER_VILLAGE_WEIGHT } : c));
+          }
+          const pick = weightedPick(dayList);
           if (pick) {
             const group = (pick.def.spawn && pick.def.spawn.group) || 1;
             const first = this.spawnNear(playerPos, pick.type);
@@ -993,6 +1047,7 @@ export class MobManager {
 
     this._updateSpawners(dt, playerPos);
     this._updateBreeding(dt);
+    if (!nether) this._updateVillageGolems(dt, playerPos);
 
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const m = this.mobs[i];
@@ -1676,6 +1731,69 @@ export class MobManager {
     return this.addMob(pos.clone(), 'boss');
   }
 
+  // ---- Phase 8: villages -------------------------------------------------------
+
+  // Nearest registered village well centre within maxDist (XZ distance), or
+  // null. Centres live in world.villageCenters (rebuilt on chunk generation).
+  nearestVillageCenter(pos, maxDist = VILLAGE_RADIUS) {
+    const centers = this.world.villageCenters;
+    if (!centers || centers.size === 0) return null;
+    let best = null;
+    let bestD = maxDist;
+    for (const c of centers.values()) {
+      const d = Math.hypot(c.x + 0.5 - pos.x, c.z + 0.5 - pos.z);
+      if (d < bestD) { best = c; bestD = d; }
+    }
+    return best;
+  }
+
+  // A completed trade: bump the villager's lifetime trade count and unlock
+  // the next tier every TRADE_TIER_USES trades. Returns true on a tier-up.
+  recordTrade(m) {
+    if (!m || m.type !== 'villager') return false;
+    m.tradeUses = (m.tradeUses || 0) + 1;
+    const tier = tradeTierFromUses(m.tradeUses);
+    if (tier > (m.tradeTier || 1)) {
+      m.tradeTier = tier;
+      return true;
+    }
+    return false;
+  }
+
+  // Every GOLEM_CHECK_INTERVAL: a village centre near the player with >= 2
+  // villagers and no iron golem within GOLEM_HOME_RADIUS musters one golem by
+  // the well. The golem's guard AI (attack hostiles within 16) does the rest.
+  _updateVillageGolems(dt, playerPos) {
+    this._golemTimer = (this._golemTimer == null ? 10 : this._golemTimer) - dt;
+    if (this._golemTimer > 0) return;
+    this._golemTimer = GOLEM_CHECK_INTERVAL;
+    const centers = this.world.villageCenters;
+    if (!centers) return;
+    for (const c of centers.values()) {
+      // Only villages near the player (loaded chunks / active mobs).
+      if (Math.hypot(c.x - playerPos.x, c.z - playerPos.z) > DESPAWN_DISTANCE + GOLEM_HOME_RADIUS) continue;
+      let villagers = 0;
+      let hasGolem = false;
+      for (const m of this.mobs) {
+        const d = Math.hypot(m.mesh.position.x - (c.x + 0.5), m.mesh.position.z - (c.z + 0.5));
+        if (d > GOLEM_HOME_RADIUS) continue;
+        if (m.type === 'villager') villagers++;
+        else if (m.type === 'iron_golem') hasGolem = true;
+      }
+      if (villagers < 2 || hasGolem) continue;
+      // Muster next to the well (the gravel apron keeps a clear 3x3 there).
+      for (let tries = 0; tries < 8; tries++) {
+        const x = c.x + Math.floor(Math.random() * 9) - 4 + 0.5;
+        const z = c.z + Math.floor(Math.random() * 9) - 4 + 0.5;
+        if (!this.canStandAt('iron_golem', x, z, c.y)) continue;
+        const h = this.groundY(x, z, c.y);
+        this.addMob(new THREE.Vector3(x, h + 1, z), 'iron_golem');
+        if (this.onEffect) this.onEffect('smoke', new THREE.Vector3(x, h + 1.5, z));
+        break;
+      }
+    }
+  }
+
   // ---- Spawner blocks (dungeons / fortresses) --------------------------------
   _updateSpawners(dt, playerPos) {
     this._spawnerTimer -= dt;
@@ -1811,6 +1929,11 @@ export class MobManager {
       if (m.vy) o.vy = m.vy; // optional; restores mid-air mobs (defaults to 0)
       if (m.size) o.size = m.size;      // slimes / magma cubes
       if (m.saddled) o.saddled = true;  // horses
+      if (m.profession) {               // villagers (Phase 8)
+        o.profession = m.profession;
+        o.tradeTier = m.tradeTier || 1;
+        o.tradeUses = m.tradeUses || 0;
+      }
       if (m.effects && m.effects.length) {
         o.effects = m.effects.map((e) => ({ id: e.id, amp: e.amp, t: e.t }));
       }

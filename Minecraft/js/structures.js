@@ -35,6 +35,18 @@ const LOOT_TABLES = {
     { id: ITEM.CARROT, min: 1, max: 3, chance: 0.4 },
     { id: ITEM.RAW_FISH, min: 1, max: 2, chance: 0.35 },
     { id: ITEM.SADDLE, min: 1, max: 1, chance: 0.1 },
+    // Phase 8: emeralds seed the villager trading economy.
+    { id: ITEM.EMERALD, min: 1, max: 3, chance: 0.4 },
+  ],
+  // Phase 8: the blacksmith forge chest (iron/emerald flavoured).
+  blacksmith: [
+    { id: ITEM.IRON_INGOT, min: 2, max: 5, chance: 0.8 },
+    { id: ITEM.EMERALD, min: 1, max: 3, chance: 0.6 },
+    { id: ITEM.COAL, min: 3, max: 7, chance: 0.6 },
+    { id: ITEM.IRON_PICKAXE, min: 1, max: 1, chance: 0.25 },
+    { id: ITEM.IRON_SWORD, min: 1, max: 1, chance: 0.2 },
+    { id: ITEM.BREAD, min: 1, max: 2, chance: 0.4 },
+    { id: ITEM.DIAMOND, min: 1, max: 1, chance: 0.08 },
   ],
   dungeon: [
     { id: ITEM.IRON_INGOT, min: 1, max: 3, chance: 0.7 },
@@ -114,8 +126,12 @@ function makePut(chunk) {
 // =============================================================================
 
 // Deterministic village layout for a village grid cell, or null.
-// Layout = { cx, cz (world block centre), buildings: [{x, z, kind, h}] }.
-function villageLayout(world, cellX, cellZ) {
+// Layout = { wx, wz (world block centre), buildings: [{x, z, kind, h, i}] }.
+// Exported so the smoke suite can assert determinism against a mock world.
+// Phase 8: houses roll a per-slot variant (plain house / library / blacksmith
+// forge / church tower) from an independent hash, keeping the original
+// house/farm/well/lamp mix probabilities intact.
+export function villageLayout(world, cellX, cellZ) {
   if (world.hash01_3(cellX, 7, cellZ, 1001) >= 0.18) return null;
   // Centre chunk inside the cell, away from the cell border.
   const ccx = cellX * VILLAGE_CELL + 2 + Math.floor(world.hash01_3(cellX, 8, cellZ, 1002) * (VILLAGE_CELL - 4));
@@ -137,7 +153,12 @@ function villageLayout(world, cellX, cellZ) {
     const h = world.columnHeight(bx, bz);
     if (h <= SEA_LEVEL) continue;
     const r = world.hash01_3(cellX, 60 + i, cellZ, 1007);
-    const kind = r < 0.5 ? 'house' : r < 0.7 ? 'farm' : r < 0.85 ? 'well' : 'lamp';
+    let kind = r < 0.5 ? 'house' : r < 0.7 ? 'farm' : r < 0.85 ? 'well' : 'lamp';
+    if (kind === 'house') {
+      // Per-slot building variant, hashed independently of the kind roll.
+      const v = world.hash01_3(cellX, 140 + i, cellZ, 1041);
+      kind = v < 0.45 ? 'house' : v < 0.65 ? 'library' : v < 0.85 ? 'blacksmith' : 'church';
+    }
     buildings.push({ x: bx, z: bz, h, kind, i });
   }
   if (!buildings.length) return null;
@@ -158,14 +179,33 @@ function generateVillagePart(world, chunk) {
       const reach = 30;
       if (Math.abs(layout.wx - (ox + 8)) > reach + 8 || Math.abs(layout.wz - (oz + 8)) > reach + 8) continue;
 
+      // Phase 8: register the village centre (side table like structureLoot,
+      // rebuilt on generation, never saved). mobs.js reads it for villager
+      // spawn bias, golem guardians and night sieges.
+      if (world.villageCenters) {
+        world.villageCenters.set(`${layout.wx},${layout.wz}`,
+          { x: layout.wx, y: layout.centerH, z: layout.wz });
+      }
       // Gravel paths from the centre to each building.
       for (const b of layout.buildings) {
         drawPath(world, put, layout.wx, layout.wz, b.x, b.z);
       }
       // The village well marks the centre.
       buildWell(world, put, layout.wx, layout.centerH, layout.wz);
+      // A clear 3x3 gravel apron beside the well: the golem muster spot.
+      for (let dx = 2; dx <= 4; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const ah = world.columnHeight(layout.wx + dx, layout.wz + dz);
+          if (ah <= SEA_LEVEL) continue;
+          put(layout.wx + dx, ah, layout.wz + dz, BLOCK.GRAVEL);
+          for (let dy = 1; dy <= 2; dy++) put(layout.wx + dx, ah + dy, layout.wz + dz, BLOCK.AIR);
+        }
+      }
       for (const b of layout.buildings) {
         if (b.kind === 'house') buildHouse(world, put, b, layout);
+        else if (b.kind === 'library') buildLibrary(world, put, b, layout);
+        else if (b.kind === 'blacksmith') buildBlacksmith(world, put, b, layout);
+        else if (b.kind === 'church') buildChurch(world, put, b, layout);
         else if (b.kind === 'farm') buildFarm(world, put, b, layout);
         else if (b.kind === 'well') buildWell(world, put, b.x, b.h, b.z);
         else buildLamp(world, put, b.x, b.h, b.z);
@@ -184,7 +224,11 @@ function drawPath(world, put, x0, z0, x1, z1) {
   }
 }
 
-function buildHouse(world, put, b, layout) {
+// Shared 7x5 building shell: cobblestone foundation + lower wall course, an
+// upper wall course of `upperWall`, glass windows, flat roof and a door facing
+// the village centre. Returns { doorDx, doorDz } so callers can keep the
+// doorway interior cell clear when furnishing.
+function buildingShell(world, put, b, layout, upperWall = BLOCK.PLANK) {
   const { x, z, h } = b;
   // Door faces the village centre.
   const doorDx = Math.abs(layout.wx - x) >= Math.abs(layout.wz - z) ? (Math.sign(layout.wx - x) || 1) : 0;
@@ -203,12 +247,18 @@ function buildHouse(world, put, b, layout) {
         if (!wall) { put(x + dx, wy, z + dz, BLOCK.AIR); continue; }
         if (isDoor && dy <= 2) put(x + dx, wy, z + dz, BLOCK.AIR);
         else if (isWindow && dy === 2) put(x + dx, wy, z + dz, BLOCK.GLASS);
-        else put(x + dx, wy, z + dz, dy === 1 ? BLOCK.COBBLESTONE : BLOCK.PLANK);
+        else put(x + dx, wy, z + dz, dy === 1 ? BLOCK.COBBLESTONE : upperWall);
       }
       put(x + dx, h + 4, z + dz, BLOCK.PLANK); // flat roof
     }
   }
   put(x - 1, h + 1, z - 1, BLOCK.TORCH, true);
+  return { doorDx, doorDz };
+}
+
+function buildHouse(world, put, b, layout) {
+  const { x, z, h } = b;
+  buildingShell(world, put, b, layout, BLOCK.PLANK);
   // One deterministic house per village carries the loot chest.
   if (b.i === 0) {
     put(x + 2, h + 1, z + 1, BLOCK.CHEST);
@@ -216,15 +266,84 @@ function buildHouse(world, put, b, layout) {
   }
 }
 
+// Phase 8: library — plank shell lined with bookshelf columns on the two
+// short interior walls (skipping the doorway's interior cell).
+function buildLibrary(world, put, b, layout) {
+  const { x, z, h } = b;
+  const { doorDx } = buildingShell(world, put, b, layout, BLOCK.PLANK);
+  for (const dx of [-2, 2]) {
+    if (doorDx !== 0 && dx === doorDx * 2) continue; // keep the doorway clear
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dy = 1; dy <= 2; dy++) put(x + dx, h + dy, z + dz, BLOCK.BOOKSHELF);
+    }
+  }
+  if (b.i === 0) {
+    put(x, h + 1, z + 1, BLOCK.CHEST);
+    world.structureLoot.set(`${x},${h + 1},${z + 1}`, 'village');
+  }
+}
+
+// Phase 8: blacksmith forge — cobblestone shell with a furnace, an anvil and
+// its own iron/emerald loot chest (every forge carries one).
+function buildBlacksmith(world, put, b, layout) {
+  const { x, z, h } = b;
+  const { doorDx, doorDz } = buildingShell(world, put, b, layout, BLOCK.COBBLESTONE);
+  // Furnishings hug the wall opposite the door so the entrance stays clear.
+  const fx = doorDx !== 0 ? -doorDx * 2 : 2;
+  const fz = doorDz !== 0 ? -doorDz : 1;
+  put(x + fx, h + 1, z - fz, BLOCK.FURNACE);
+  put(x + fx, h + 1, z + fz, BLOCK.ANVIL);
+  put(x - fx, h + 1, z + fz, BLOCK.CHEST);
+  world.structureLoot.set(`${x - fx},${h + 1},${z + fz}`, 'blacksmith');
+}
+
+// Phase 8: church — a 5x5 cobblestone tower (cleric's haunt), taller than the
+// houses, with glass windows, an open doorway and a torch-lit top.
+function buildChurch(world, put, b, layout) {
+  const { x, z, h } = b;
+  const doorDx = Math.abs(layout.wx - x) >= Math.abs(layout.wz - z) ? (Math.sign(layout.wx - x) || 1) : 0;
+  const doorDz = doorDx === 0 ? (Math.sign(layout.wz - z) || 1) : 0;
+  const TOWER_H = 7;
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let fy = h - 2; fy < h; fy++) put(x + dx, fy, z + dz, BLOCK.COBBLESTONE);
+      put(x + dx, h, z + dz, BLOCK.COBBLESTONE); // floor
+      const wall = Math.abs(dx) === 2 || Math.abs(dz) === 2;
+      const isDoor = (doorDx !== 0 && dx === doorDx * 2 && dz === 0) ||
+                     (doorDz !== 0 && dz === doorDz * 2 && dx === 0);
+      const isWindow = !isDoor && wall && (dx === 0 || dz === 0);
+      for (let dy = 1; dy <= TOWER_H - 1; dy++) {
+        const wy = h + dy;
+        if (!wall) { put(x + dx, wy, z + dz, BLOCK.AIR); continue; }
+        if (isDoor && dy <= 2) put(x + dx, wy, z + dz, BLOCK.AIR);
+        else if (isWindow && (dy === 2 || dy === 5)) put(x + dx, wy, z + dz, BLOCK.GLASS);
+        else put(x + dx, wy, z + dz, BLOCK.COBBLESTONE);
+      }
+      put(x + dx, h + TOWER_H, z + dz, BLOCK.COBBLESTONE); // roof
+    }
+  }
+  // Torches on the roof corners light the village at night.
+  for (const [px, pz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) {
+    put(x + px, h + TOWER_H + 1, z + pz, BLOCK.TORCH, true);
+  }
+  put(x, h + 1, z, BLOCK.TORCH, true); // altar torch inside
+}
+
 function buildFarm(world, put, b) {
   const { x, z, h } = b;
+  // Phase 8: ~40% of farms grow carrots instead of wheat (per-farm hash).
+  const carrots = world.hash01_3(x, 3, z, 1042) < 0.4;
   for (let dx = -2; dx <= 2; dx++) {
     for (let dz = -2; dz <= 2; dz++) {
       const edge = Math.abs(dx) === 2 || Math.abs(dz) === 2;
       put(x + dx, h, z + dz, edge ? BLOCK.WOOD : (dx === 0 ? BLOCK.WATER : BLOCK.FARMLAND));
       if (!edge && dx !== 0) {
         const stage = world.hash01_3(x + dx, h, z + dz, 1011);
-        put(x + dx, h + 1, z + dz, stage < 0.4 ? BLOCK.WHEAT_1 : stage < 0.75 ? BLOCK.WHEAT_2 : BLOCK.WHEAT_3);
+        if (carrots) {
+          put(x + dx, h + 1, z + dz, stage < 0.4 ? BLOCK.CARROT_1 : BLOCK.CARROT_2);
+        } else {
+          put(x + dx, h + 1, z + dz, stage < 0.4 ? BLOCK.WHEAT_1 : stage < 0.75 ? BLOCK.WHEAT_2 : BLOCK.WHEAT_3);
+        }
       }
     }
   }

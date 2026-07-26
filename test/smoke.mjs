@@ -43,6 +43,11 @@ import {
 import { anvilResult, ANVIL_XP_COST } from '../Minecraft/js/anvil.js';
 import { TerrainGen } from '../Minecraft/js/terrain.js';
 import {
+  PROFESSIONS, PROFESSION_IDS, professionForPos, tradeTierFromUses,
+  unlockedTrades, TRADE_TIER_USES, MAX_TRADE_TIER,
+} from '../Minecraft/js/trades.js';
+import { rollLoot, villageLayout } from '../Minecraft/js/structures.js';
+import {
   computeLightField, extractCenterLight, buildMeshArrays, SNAP_W, SNAP_VOL,
 } from '../Minecraft/js/meshcore.js';
 
@@ -353,7 +358,7 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 14, 'migrated save version is 14 (v7 chains through the whole ladder)');
+  assert(m.version === 15, 'migrated save version is 15 (v7 chains through the whole ladder)');
   assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
@@ -374,17 +379,17 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 14 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+  assert(v3.version === 15 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
     'v3 save migrates through the whole chain');
 
   // A v8 save gains the mode field, then the fluids/boats defaults.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 14 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
-    'v8 save upgrades to v14 with mode survival, ids untouched');
+  assert(v8.version === 15 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+    'v8 save upgrades to current with mode survival, ids untouched');
 
   // v9 -> v10: fluids/boats defaults appear, everything else untouched.
   const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
-  assert(v9.version === 14 && v9.mode === 'creative', 'v9 save upgrades to v14 (mode preserved)');
+  assert(v9.version === 15 && v9.mode === 'creative', 'v9 save upgrades to current (mode preserved)');
   assert(v9.fluids && Array.isArray(v9.fluids.active) && v9.fluids.active.length === 0,
     'v9 -> v10 adds an empty fluids state');
   assert(Array.isArray(v9.boats) && v9.boats.length === 0, 'v9 -> v10 adds an empty boats list');
@@ -396,8 +401,8 @@ function grid(...entries) {
     fluids: { active: ['1,2,3'] }, boats: [{ x: 1, y: 20, z: 3 }],
     mobs: [{ type: 'pig', x: 1, y: 20, z: 3, health: 8, baby: true, growTimer: 5 }],
   });
-  assert(v10.version === 14 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
-    'v10 save upgrades to v14 (fluids/boats preserved)');
+  assert(v10.version === 15 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
+    'v10 save upgrades to current (fluids/boats preserved)');
   assert(v10.mobs.length === 1 && v10.mobs[0].type === 'pig' && v10.mobs[0].baby === true,
     'v10 -> v11 leaves saved mobs untouched');
 
@@ -407,14 +412,14 @@ function grid(...entries) {
     version: 11, seed: 1337, mobs: [{ type: 'slime', size: 2, x: 0, z: 0 }],
     redstone: { levers: ['1,2,3'], pistons: {}, repeaters: {} },
   });
-  assert(v11.version === 14 && v11.mobs[0].size === 2, 'v11 save upgrades to v14');
+  assert(v11.version === 15 && v11.mobs[0].size === 2, 'v11 save upgrades to current');
   assert(v11.dispensers && Object.keys(v11.dispensers).length === 0,
     'v11 -> v12 adds an empty dispensers map');
   assert(v11.hoppers && Object.keys(v11.hoppers).length === 0,
     'v11 -> v12 adds an empty hoppers map');
   assert(v11.redstone.levers[0] === '1,2,3', 'v11 -> v12 leaves redstone state untouched');
   const v12 = migrateSave({ version: 12, seed: 1337, hoppers: { 'N|1,2,3': { dir: [0, -1, 0], slots: [] } } });
-  assert(v12.version === 14 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to v14 with hoppers intact');
+  assert(v12.version === 15 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to current with hoppers intact');
 }
 
 // ---- Phase 3: buckets, boats, fishing, fluids ----------------------------------------------
@@ -1185,7 +1190,7 @@ function grid(...entries) {
 // ---- Phase 7: migration v12 -> v13 ----------------------------------------------------------
 {
   const v12b = migrateSave({ version: 12, seed: 1337, hoppers: {}, dispensers: {} });
-  assert(v12b.version === 14, 'v12 save upgrades to v14');
+  assert(v12b.version === 15, 'v12 save upgrades to current');
   assert(Array.isArray(v12b.effects) && v12b.effects.length === 0, 'v12 -> v13 adds empty effects');
   assert(v12b.brewingStands && Object.keys(v12b.brewingStands).length === 0,
     'v12 -> v13 adds empty brewingStands');
@@ -1194,8 +1199,8 @@ function grid(...entries) {
     effects: [{ id: 'speed', amp: 2, t: 30 }],
     brewingStands: { '1,2,3': { bottles: [null, null, null], charges: 5, progress: 0 } },
   });
-  assert(v13.version === 14 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
-    'v13 save chains into v14');
+  assert(v13.version === 15 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
+    'v13 save chains into current');
 }
 
 // ---- Phase 5: world height + registry additions ---------------------------------------------
@@ -1333,10 +1338,142 @@ function grid(...entries) {
 // ---- Phase 5: migration v13 -> v14 -------------------------------------------------------------
 {
   const v13g = migrateSave({ version: 13, seed: 1337, effects: [], brewingStands: {} });
-  assert(v13g.version === 14 && v13g.genVersion === 1,
-    'v13 -> v14 stamps genVersion 1 on old saves');
+  assert(v13g.version === 15 && v13g.genVersion === 1,
+    'v13 -> v14 stamps genVersion 1 on old saves (chain ends at 15)');
   const v14 = migrateSave({ version: 14, seed: 1337, genVersion: 2 });
-  assert(v14.version === 14 && v14.genVersion === 2, 'v14 save with genVersion 2 is untouched');
+  assert(v14.version === 15 && v14.genVersion === 2, 'v14 save keeps genVersion 2 and chains to 15');
+}
+
+// ---- Phase 8: villager professions + leveled trades ---------------------------------------
+{
+  // Registry shape: exactly 5 professions x 3 tiers, every tier non-empty.
+  const expected = ['farmer', 'librarian', 'blacksmith', 'cleric', 'butcher'];
+  assert(PROFESSION_IDS.length === 5 && expected.every((p) => PROFESSIONS[p]),
+    'PROFESSIONS has the 5 expected professions');
+  const defined = (id) => BLOCKS[id] !== undefined || ITEMS[id] !== undefined;
+  for (const [pid, prof] of Object.entries(PROFESSIONS)) {
+    assert(typeof prof.name === 'string' && prof.trades.length === MAX_TRADE_TIER,
+      `${pid} has a name and ${MAX_TRADE_TIER} tiers`);
+    for (let t = 0; t < prof.trades.length; t++) {
+      assert(prof.trades[t].length > 0, `${pid} tier ${t + 1} is non-empty`);
+      for (const tr of prof.trades[t]) {
+        assert(Array.isArray(tr.give) && tr.give.length > 0 && tr.get && tr.get.id != null,
+          `${pid} tier ${t + 1} trade has give[] and get`);
+        for (const g of tr.give) {
+          assert(defined(g.id), `${pid} trade give id ${g.id} is a defined block/item`);
+          assert(Number.isInteger(g.count) && g.count >= 1 && g.count <= 64,
+            `${pid} trade give count ${g.count} within 1..64`);
+        }
+        assert(defined(tr.get.id), `${pid} trade get id ${tr.get.id} is a defined block/item`);
+        assert(Number.isInteger(tr.get.count) && tr.get.count >= 1 && tr.get.count <= 64,
+          `${pid} trade get count within 1..64`);
+        // Emeralds are the currency: one side of EVERY trade is emeralds.
+        const emeraldSide = tr.get.id === ITEM.EMERALD || tr.give.some((g) => g.id === ITEM.EMERALD);
+        assert(emeraldSide, `${pid} trade uses EMERALD as currency on one side`);
+      }
+    }
+  }
+  // Tier progression: 4 trades per tier, capped at 3.
+  assert(tradeTierFromUses(0) === 1 && tradeTierFromUses(TRADE_TIER_USES - 1) === 1,
+    'tier stays 1 below the first threshold');
+  assert(tradeTierFromUses(TRADE_TIER_USES) === 2 && tradeTierFromUses(2 * TRADE_TIER_USES) === 3,
+    'tier rises every TRADE_TIER_USES trades');
+  assert(tradeTierFromUses(99) === MAX_TRADE_TIER, 'tier caps at MAX_TRADE_TIER');
+  // unlockedTrades flattens tiers 1..t and annotates each entry.
+  const t1 = unlockedTrades('farmer', 1);
+  const t3 = unlockedTrades('farmer', 3);
+  assert(t1.length === PROFESSIONS.farmer.trades[0].length && t1.every((tr) => tr.tier === 1),
+    'unlockedTrades(tier 1) is exactly tier 1');
+  assert(t3.length === PROFESSIONS.farmer.trades.flat().length,
+    'unlockedTrades(tier 3) flattens all tiers');
+  // Deterministic profession roll from position.
+  assert(professionForPos(10, -20) === professionForPos(10, -20),
+    'professionForPos is deterministic');
+  assert(PROFESSION_IDS.includes(professionForPos(123, 456)),
+    'professionForPos returns a valid profession');
+  const rolled = new Set();
+  for (let i = 0; i < 200; i++) rolled.add(professionForPos(i * 17, i * -31));
+  assert(rolled.size === PROFESSION_IDS.length, 'position hash reaches every profession');
+}
+
+// ---- Phase 8: emerald economy ---------------------------------------------------------
+{
+  assert(BLOCKS[BLOCK.EMERALD_BLOCK] && BLOCKS[BLOCK.EMERALD_BLOCK].name === 'Emerald Block',
+    'EMERALD_BLOCK block defined');
+  // 9 emeralds <-> 1 emerald block, both shapeless.
+  const grid9 = new Array(9).fill(null).map(() => ({ id: ITEM.EMERALD, count: 1 }));
+  const toBlock = craftResult(grid9, 3);
+  assert(toBlock && toBlock.id === BLOCK.EMERALD_BLOCK && toBlock.count === 1,
+    '9 emeralds craft into an emerald block');
+  const back = craftResult([{ id: BLOCK.EMERALD_BLOCK, count: 1 }, null, null, null], 2);
+  assert(back && back.id === ITEM.EMERALD && back.count === 9,
+    'emerald block converts back into 9 emeralds');
+  assert(blockDrop(BLOCK.EMERALD_ORE, ITEM.IRON_PICKAXE)[0].id === ITEM.EMERALD,
+    'emerald ore still drops the EMERALD item');
+  // Village loot can roll emeralds (hash stream 0 => every entry passes).
+  const slots = rollLoot('village', () => 0);
+  assert(slots.some((s) => s && s.id === ITEM.EMERALD), 'village loot table includes emeralds');
+  const forge = rollLoot('blacksmith', () => 0);
+  assert(forge.some((s) => s && s.id === ITEM.IRON_INGOT) &&
+    forge.some((s) => s && s.id === ITEM.EMERALD),
+    'blacksmith loot table includes iron + emeralds');
+}
+
+// ---- Phase 8: village layout determinism + building variants ---------------------------
+{
+  // Mock world over the three-free TerrainGen (same delegates World uses).
+  const T = new TerrainGen(WORLD_SEED, 2);
+  const mockWorld = {
+    hash01_3: (x, y, z, s) => T.hash01_3(x, y, z, s),
+    columnHeight: (x, z) => T.columnHeight(x, z),
+    biomeAt: (x, z) => T.biomeAt(x, z),
+  };
+  const kinds = new Set();
+  let found = 0;
+  let firstLayout = null;
+  for (let cx = -20; cx <= 20 && found < 12; cx++) {
+    for (let cz = -20; cz <= 20 && found < 12; cz++) {
+      const layout = villageLayout(mockWorld, cx, cz);
+      if (!layout) continue;
+      found++;
+      if (!firstLayout) firstLayout = { cx, cz, layout };
+      for (const b of layout.buildings) kinds.add(b.kind);
+      assert(Number.isFinite(layout.wx) && Number.isFinite(layout.wz) &&
+        layout.centerH > SEA_LEVEL, 'village layout has a valid above-sea centre');
+    }
+  }
+  assert(found > 0, 'the seed produces at least one village in a 41x41-cell scan');
+  const valid = ['house', 'library', 'blacksmith', 'church', 'farm', 'well', 'lamp'];
+  for (const k of kinds) assert(valid.includes(k), `building kind '${k}' is known`);
+  assert(['library', 'blacksmith', 'church'].some((k) => kinds.has(k)),
+    'at least one Phase 8 building variant appears across villages');
+  // Pure function of the seed: identical on re-roll.
+  if (firstLayout) {
+    const again = villageLayout(mockWorld, firstLayout.cx, firstLayout.cz);
+    assert(JSON.stringify(again) === JSON.stringify(firstLayout.layout),
+      'villageLayout is deterministic for a cell');
+  }
+}
+
+// ---- Phase 8: migration v14 -> v15 -------------------------------------------------------
+{
+  const save = migrateSave({
+    version: 14, seed: 1337, genVersion: 2,
+    mobs: [
+      { type: 'villager', x: 100.5, y: 30, z: -40.5, health: 20 },
+      { type: 'villager', x: 12, y: 30, z: 9, health: 20, profession: 'cleric', tradeTier: 2, tradeUses: 5 },
+      { type: 'zombie', x: 0, y: 30, z: 0, health: 10 },
+    ],
+  });
+  assert(save.version === 15, 'v14 save migrates to v15');
+  const [v1, v2, zom] = save.mobs;
+  assert(v1.profession === professionForPos(100.5, -40.5) && v1.tradeTier === 1 && v1.tradeUses === 0,
+    'migrated villager gains deterministic profession + tier defaults');
+  assert(v2.profession === 'cleric' && v2.tradeTier === 2 && v2.tradeUses === 5,
+    'villager with existing trade fields is untouched');
+  assert(zom.profession === undefined, 'non-villagers gain no profession');
+  const v15 = migrateSave({ version: 15, seed: 1337, genVersion: 2 });
+  assert(v15.version === 15, 'v15 save is untouched');
 }
 
 // ---- Noise determinism ------------------------------------------------------------------

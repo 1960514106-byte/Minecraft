@@ -2385,6 +2385,19 @@ export function createAtlasTexture() {
     }
   }
 
+  // ---- Phase 8: EMERALD_BLOCK (251) : polished green block with bevel ------------
+  {
+    const { ox, oy } = speckle(TILES.EMERALD_BLOCK, [52, 188, 106], 12);
+    for (let i = 1; i < TILE_PX - 1; i++) {
+      setpx(ox + i, oy + 1, 120, 236, 160);   // top/left highlight bevel
+      setpx(ox + 1, oy + i, 120, 236, 160);
+      setpx(ox + i, oy + 14, 24, 120, 62);    // bottom/right shadow bevel
+      setpx(ox + 14, oy + i, 24, 120, 62);
+    }
+    // facet sparkle diagonals
+    for (let i = 3; i <= 12; i += 3) setpx(ox + i, oy + i, 168, 250, 196);
+  }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

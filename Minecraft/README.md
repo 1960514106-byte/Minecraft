@@ -26,8 +26,11 @@ vendored locally under `js/vendor/`.
   mouths), thin winding **noodle caves** and rare **ravines** 15–25 deep
 - Coal, iron, gold, redstone, diamond, **lapis** (deep; drops 4–8 lapis) and
   **emerald** (mountains only) ore veins in the stone layers
-- **Villages**: multi-building settlements with houses, farm plots, wells,
-  lamp posts, gravel paths and a loot chest
+- **Villages**: multi-building settlements with houses, **libraries**
+  (bookshelf-lined), **blacksmith forges** (furnace + anvil + iron/emerald
+  chest), **church towers**, wheat *and carrot* farm plots, wells, lamp
+  posts, gravel paths and a loot chest — building variants are picked
+  per-slot from the seed
 - **Dungeons**: buried cobblestone rooms holding a working mob spawner and
   loot chests
 - **Abandoned mineshafts**: corridor networks with support frames, plank
@@ -78,7 +81,17 @@ vendored locally under `js/vendor/`.
   animal appears, growing up over time
 - **Wolves** roam forests: tame them with bones — tamed wolves follow you,
   fight whatever you fight, and sit/stand on command
-- Villagers spawn in the world and offer a trade menu
+- **Villagers & trading**: every villager has a profession — **farmer**
+  (straw robe), **librarian** (white), **blacksmith** (dark gray), **cleric**
+  (purple) or **butcher** (red-brown) — rolled deterministically from its
+  spawn position. Right-click opens its trade screen: **emeralds are the
+  currency** (sell wheat/coal/meat/bones... for emeralds, buy bread, tools,
+  bookshelves, blaze powder, cooked food, even a saddle). Every 4 completed
+  trades level the villager up a tier (3 tiers) unlocking better trades.
+  Villagers spawn far more often near village wells; at night hostile
+  pressure doubles near a village (zombie-siege lite)
+- A village with 2+ villagers musters an **iron golem** by its well (checked
+  once a minute, one golem per village) — the golem guards against hostiles
 - **Witches** appear rarely at night, keeping their distance and lobbing
   damaging flasks; drop redstone/glowstone dust
 - **Slimes** hop through plains nights and split into smaller slimes when
@@ -374,6 +387,7 @@ Blaze powder x2: 1 blaze rod (shapeless)
 Fermented spider eye: sugar + spider eye (shapeless)
 Anvil: 3 iron blocks over 4 iron ingots
 Shield: 6 planks + iron ingot (top middle)
+Emerald block: 9 emeralds (shapeless); 1 emerald block -> 9 emeralds
 ```
 
 ## Possible extensions

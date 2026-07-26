@@ -332,6 +332,18 @@
     }
     #tradeList .trade-option:hover { background: rgba(80,180,80,0.2); }
     #tradeList .trade-option.disabled { opacity: 0.4; cursor: not-allowed; }
+    /* Phase 8: give -> get icon rows */
+    #tradeList .trade-side { display: flex; gap: 8px; align-items: center; }
+    #tradeList .trade-icon {
+      position: relative; width: 20px; height: 20px; display: inline-block;
+      image-rendering: pixelated; background-repeat: no-repeat;
+    }
+    #tradeList .trade-icon .trade-count {
+      position: absolute; right: -4px; bottom: -5px; font-size: 10px;
+      color: #fff; text-shadow: 1px 1px 0 #000; pointer-events: none;
+    }
+    #tradeList .trade-arrow { opacity: 0.7; margin: 0 10px; }
+    #tradeList .trade-tier { font-size: 10px; opacity: 0.5; margin-left: 10px; }
 
     /* Blue tint that fades in while the camera is inside a water block */
     #underwater {

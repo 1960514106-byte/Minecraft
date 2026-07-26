@@ -2,6 +2,8 @@
 // storage.js - IndexedDB save-game persistence with legacy localStorage import.
 // =============================================================================
 
+import { professionForPos, tradeTierFromUses } from './trades.js';
+
 const DB_NAME = 'voxelcraft';
 const DB_VERSION = 1;
 const STORE = 'saves';
@@ -176,7 +178,27 @@ function v13to14(save) {
   return save;
 }
 
-const MIGRATIONS = { 7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11, 11: v11to12, 12: v12to13, 13: v13to14 };
+// v14 -> v15: Phase 8 villager professions + leveled trades. Saved villagers
+// gain a deterministic profession (hashed from their saved position — the
+// same roll addMob would make) plus tradeTier/tradeUses defaults. The old
+// global TRADES table was pure code, so nothing else needs rewriting.
+function v14to15(save) {
+  if (Array.isArray(save.mobs)) {
+    for (const m of save.mobs) {
+      if (!m || m.type !== 'villager') continue;
+      if (!m.profession) m.profession = professionForPos(m.x || 0, m.z || 0);
+      if (!Number.isFinite(m.tradeUses) || m.tradeUses < 0) m.tradeUses = 0;
+      if (!Number.isFinite(m.tradeTier)) m.tradeTier = tradeTierFromUses(m.tradeUses);
+    }
+  }
+  save.version = 15;
+  return save;
+}
+
+const MIGRATIONS = {
+  7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11, 11: v11to12, 12: v12to13, 13: v13to14,
+  14: v14to15,
+};
 
 export function migrateSave(save) {
   if (!save || typeof save.version !== 'number') return save;
