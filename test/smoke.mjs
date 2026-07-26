@@ -28,6 +28,9 @@ import {
 } from '../Minecraft/js/mobdefs.js';
 import { migrateSave } from '../Minecraft/js/storage.js';
 import { getMode, setMode, isCreative, setOnModeChange } from '../Minecraft/js/gamemode.js';
+import { Redstone } from '../Minecraft/js/redstone.js';
+import { HopperManager, HOPPER_SLOTS, insertStack } from '../Minecraft/js/hoppers.js';
+import { DispenserManager, DISPENSER_SLOTS } from '../Minecraft/js/dispensers.js';
 
 let failures = 0;
 function assert(cond, msg) {
@@ -336,7 +339,7 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 11, 'migrated save version is 11 (v7 chains through the whole ladder)');
+  assert(m.version === 12, 'migrated save version is 12 (v7 chains through the whole ladder)');
   assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
@@ -357,17 +360,17 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 11 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+  assert(v3.version === 12 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
     'v3 save migrates through the whole chain');
 
   // A v8 save gains the mode field, then the fluids/boats defaults.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 11 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
-    'v8 save upgrades to v11 with mode survival, ids untouched');
+  assert(v8.version === 12 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+    'v8 save upgrades to v12 with mode survival, ids untouched');
 
   // v9 -> v10: fluids/boats defaults appear, everything else untouched.
   const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
-  assert(v9.version === 11 && v9.mode === 'creative', 'v9 save upgrades to v11 (mode preserved)');
+  assert(v9.version === 12 && v9.mode === 'creative', 'v9 save upgrades to v12 (mode preserved)');
   assert(v9.fluids && Array.isArray(v9.fluids.active) && v9.fluids.active.length === 0,
     'v9 -> v10 adds an empty fluids state');
   assert(Array.isArray(v9.boats) && v9.boats.length === 0, 'v9 -> v10 adds an empty boats list');
@@ -379,12 +382,25 @@ function grid(...entries) {
     fluids: { active: ['1,2,3'] }, boats: [{ x: 1, y: 20, z: 3 }],
     mobs: [{ type: 'pig', x: 1, y: 20, z: 3, health: 8, baby: true, growTimer: 5 }],
   });
-  assert(v10.version === 11 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
-    'v10 save upgrades to v11 (fluids/boats preserved)');
+  assert(v10.version === 12 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
+    'v10 save upgrades to v12 (fluids/boats preserved)');
   assert(v10.mobs.length === 1 && v10.mobs[0].type === 'pig' && v10.mobs[0].baby === true,
     'v10 -> v11 leaves saved mobs untouched');
-  const v11 = migrateSave({ version: 11, seed: 1337, mobs: [{ type: 'slime', size: 2, x: 0, z: 0 }] });
-  assert(v11.version === 11 && v11.mobs[0].size === 2, 'v11 save is a no-op');
+
+  // v11 -> v12 (Phase 6): empty dispenser/hopper maps appear; the redstone
+  // side-table is untouched (its new fields default inside Redstone.restore).
+  const v11 = migrateSave({
+    version: 11, seed: 1337, mobs: [{ type: 'slime', size: 2, x: 0, z: 0 }],
+    redstone: { levers: ['1,2,3'], pistons: {}, repeaters: {} },
+  });
+  assert(v11.version === 12 && v11.mobs[0].size === 2, 'v11 save upgrades to v12');
+  assert(v11.dispensers && Object.keys(v11.dispensers).length === 0,
+    'v11 -> v12 adds an empty dispensers map');
+  assert(v11.hoppers && Object.keys(v11.hoppers).length === 0,
+    'v11 -> v12 adds an empty hoppers map');
+  assert(v11.redstone.levers[0] === '1,2,3', 'v11 -> v12 leaves redstone state untouched');
+  const v12 = migrateSave({ version: 12, seed: 1337, hoppers: { 'N|1,2,3': { dir: [0, -1, 0], slots: [] } } });
+  assert(v12.version === 12 && v12.hoppers['N|1,2,3'], 'v12 save is a no-op');
 }
 
 // ---- Phase 3: buckets, boats, fishing, fluids ----------------------------------------------
@@ -655,6 +671,290 @@ function grid(...entries) {
     [0, ITEM.INK_SAC], [1, ITEM.BONE_MEAL], [3, ITEM.BONE_MEAL], [4, BLOCK.WOOL_WHITE],
   ), 2);
   assert(lgray && lgray.id === BLOCK.WOOL_LIGHT_GRAY, 'ink + 2 bone meal + wool -> light gray wool');
+}
+
+// ---- Phase 6: redstone completion — registry, recipes, managers ---------------------------
+{
+  // New blocks defined with tiles and sane drops.
+  for (const name of ['REDSTONE_TORCH_OFF', 'STICKY_PISTON', 'OBSERVER', 'DISPENSER',
+    'DROPPER', 'HOPPER', 'NOTE_BLOCK']) {
+    assert(BLOCK[name] >= 119 && BLOCKS[BLOCK[name]], `BLOCK.${name} defined with a BLOCKS entry`);
+  }
+  assert(blockDrop(BLOCK.REDSTONE_TORCH_OFF)[0].id === BLOCK.REDSTONE_TORCH,
+    'unlit redstone torch drops the lit torch item');
+  assert(blockModel(BLOCK.REDSTONE_TORCH_OFF) === 'torch', 'torch-off keeps the torch model');
+  assert(!BLOCKS[BLOCK.REDSTONE_TORCH_OFF].light, 'torch-off emits no light');
+  assert(BLOCKS[BLOCK.REDSTONE_TORCH].light > 0, 'lit torch still emits light');
+
+  // Recipes.
+  const sticky = craftResult(grid([0, BLOCK.PISTON], [1, ITEM.SLIMEBALL]), 2);
+  assert(sticky && sticky.id === BLOCK.STICKY_PISTON, 'piston + slimeball -> sticky piston');
+  const observer = craftResult(grid(
+    [0, BLOCK.COBBLESTONE], [1, BLOCK.COBBLESTONE], [2, BLOCK.COBBLESTONE],
+    [3, ITEM.REDSTONE], [4, ITEM.REDSTONE], [5, BLOCK.GLASS],
+    [6, BLOCK.COBBLESTONE], [7, BLOCK.COBBLESTONE], [8, BLOCK.COBBLESTONE],
+  ), 3);
+  assert(observer && observer.id === BLOCK.OBSERVER, '6 cobble + 2 redstone + glass -> observer');
+  const dispenser = craftResult(grid(
+    [0, BLOCK.COBBLESTONE], [1, BLOCK.COBBLESTONE], [2, BLOCK.COBBLESTONE],
+    [3, BLOCK.COBBLESTONE], [4, ITEM.BOW], [5, BLOCK.COBBLESTONE],
+    [6, BLOCK.COBBLESTONE], [7, ITEM.REDSTONE], [8, BLOCK.COBBLESTONE],
+  ), 3);
+  assert(dispenser && dispenser.id === BLOCK.DISPENSER, '7 cobble + bow + redstone -> dispenser');
+  const dropper = craftResult(grid(
+    [0, BLOCK.COBBLESTONE], [1, BLOCK.COBBLESTONE], [2, BLOCK.COBBLESTONE],
+    [3, BLOCK.COBBLESTONE], [5, BLOCK.COBBLESTONE],
+    [6, BLOCK.COBBLESTONE], [7, ITEM.REDSTONE], [8, BLOCK.COBBLESTONE],
+  ), 3);
+  assert(dropper && dropper.id === BLOCK.DROPPER, '7 cobble + redstone -> dropper');
+  const hopper = craftResult(grid(
+    [0, ITEM.IRON_INGOT], [2, ITEM.IRON_INGOT],
+    [3, ITEM.IRON_INGOT], [4, ITEM.CHEST_ITEM], [5, ITEM.IRON_INGOT],
+    [7, ITEM.IRON_INGOT],
+  ), 3);
+  assert(hopper && hopper.id === BLOCK.HOPPER, '5 iron in a W + chest -> hopper');
+  const note = craftResult(grid(
+    [0, BLOCK.PLANK], [1, BLOCK.PLANK], [2, BLOCK.PLANK],
+    [3, BLOCK.PLANK], [4, ITEM.REDSTONE], [5, BLOCK.PLANK],
+    [6, BLOCK.PLANK], [7, BLOCK.PLANK], [8, BLOCK.PLANK],
+  ), 3);
+  assert(note && note.id === BLOCK.NOTE_BLOCK, '8 planks + redstone -> note block');
+  const comparator = craftResult(grid(
+    [1, BLOCK.REDSTONE_TORCH],
+    [3, BLOCK.REDSTONE_TORCH], [4, ITEM.REDSTONE], [5, BLOCK.REDSTONE_TORCH],
+    [6, BLOCK.STONE], [7, BLOCK.STONE], [8, BLOCK.STONE],
+  ), 3);
+  assert(comparator && comparator.id === BLOCK.COMPARATOR,
+    '3 torches + redstone + 3 stone -> comparator');
+  assert(blockModel(BLOCK.COMPARATOR) === 'plate', 'comparator uses the plate model');
+
+  // insertStack helper: merges then fills, respects stack caps.
+  {
+    const slots = [null, { id: BLOCK.STONE, count: 62 }, null];
+    assert(insertStack(slots, BLOCK.STONE, 5) === 0, 'insertStack fits 5 stone');
+    assert(slots[1].count === 64 && slots[0] && slots[0].id === BLOCK.STONE && slots[0].count === 3,
+      'insertStack tops up the stack then opens a new one');
+    const full = [{ id: BLOCK.DIRT, count: 64 }];
+    assert(insertStack(full, BLOCK.DIRT, 3) === 3, 'insertStack reports leftover when full');
+  }
+
+  // Managers: round-trip + spill.
+  {
+    const hm = new HopperManager();
+    const h = hm.getOrCreate('1,2,3', [1, 0, 0]);
+    assert(h.slots.length === HOPPER_SLOTS && h.dir[0] === 1, 'hopper created with 5 slots + dir');
+    h.slots[0] = { id: BLOCK.STONE, count: 4 };
+    const hm2 = new HopperManager(hm.serialize());
+    const h2 = hm2.getOrCreate('1,2,3');
+    assert(h2.dir[0] === 1 && h2.slots[0].count === 4, 'hopper serialize/restore keeps dir + slots');
+    assert(hm2.remove('1,2,3')[0].id === BLOCK.STONE, 'hopper remove spills contents');
+
+    const dm = new DispenserManager();
+    const slots = dm.getOrCreate('N|4,5,6');
+    assert(slots.length === DISPENSER_SLOTS, 'dispenser has 9 slots');
+    slots[3] = { id: ITEM.ARROW, count: 12 };
+    const dm2 = new DispenserManager(dm.serialize());
+    assert(dm2.getOrCreate('N|4,5,6')[3].count === 12, 'dispenser serialize/restore keeps slots');
+    assert(dm2.remove('N|4,5,6')[0].id === ITEM.ARROW, 'dispenser remove spills contents');
+  }
+}
+
+// ---- Phase 6: Redstone engine micro-sim (redstone.js is three-free) ------------------------
+{
+  class RWorld {
+    constructor() { this.map = new Map(); this.metaMap = new Map(); this.onCellChanged = null; }
+    key(x, y, z) { return `${x},${y},${z}`; }
+    getBlock(x, y, z) { const v = this.map.get(this.key(x, y, z)); return v === undefined ? BLOCK.AIR : v; }
+    getMeta(x, y, z) { const v = this.metaMap.get(this.key(x, y, z)); return v === undefined ? 0 : v; }
+    setBlock(x, y, z, id, meta = 0) {
+      const k = this.key(x, y, z);
+      const old = this.getBlock(x, y, z), oldMeta = this.getMeta(x, y, z);
+      this.map.set(k, id);
+      this.metaMap.set(k, meta);
+      if (this.onCellChanged && (old !== id || oldMeta !== meta)) this.onCellChanged(x, y, z);
+    }
+  }
+  const tick = (r, n = 1) => { for (let i = 0; i < n; i++) r.update(0.1, null); };
+
+  const w = new RWorld();
+  const r = new Redstone(w);
+  w.onCellChanged = (x, y, z) => r.onCellChanged(x, y, z);
+  const place = (x, y, z, id, dir) => {
+    w.setBlock(x, y, z, id);
+    r.onBlockPlaced(x, y, z, id, dir ? { dir } : {});
+  };
+
+  // 1) Lever -> wire -> lamp.
+  place(0, 10, 0, BLOCK.LEVER);
+  place(1, 10, 0, BLOCK.REDSTONE_WIRE);
+  place(2, 10, 0, BLOCK.REDSTONE_WIRE);
+  w.setBlock(3, 10, 0, BLOCK.REDSTONE_LAMP);
+  r.toggleLever(0, 10, 0);
+  tick(r);
+  assert(w.getBlock(3, 10, 0) === BLOCK.REDSTONE_LAMP_ON, 'lever through wire lights the lamp');
+  r.toggleLever(0, 10, 0);
+  tick(r);
+  assert(w.getBlock(3, 10, 0) === BLOCK.REDSTONE_LAMP, 'lever off darkens the lamp');
+
+  // 2) Torch NOT gate: lever -> support block -> torch inverts; lamp beside
+  // the torch follows.
+  w.setBlock(0, 20, 0, BLOCK.STONE);           // support
+  place(0, 21, 0, BLOCK.REDSTONE_TORCH);       // torch on top
+  w.setBlock(1, 21, 0, BLOCK.REDSTONE_LAMP);   // lamp beside the torch
+  place(-1, 20, 0, BLOCK.LEVER);
+  tick(r, 2);
+  assert(w.getBlock(0, 21, 0) === BLOCK.REDSTONE_TORCH, 'unpowered support keeps the torch lit');
+  assert(w.getBlock(1, 21, 0) === BLOCK.REDSTONE_LAMP_ON, 'lit torch lights the lamp beside it');
+  r.toggleLever(-1, 20, 0);
+  tick(r, 2);
+  assert(w.getBlock(0, 21, 0) === BLOCK.REDSTONE_TORCH_OFF, 'powering the support turns the torch OFF (NOT gate)');
+  assert(w.getBlock(1, 21, 0) === BLOCK.REDSTONE_LAMP, 'lamp behind the inverted torch goes dark');
+  r.toggleLever(-1, 20, 0);
+  tick(r, 2);
+  assert(w.getBlock(0, 21, 0) === BLOCK.REDSTONE_TORCH && w.getBlock(1, 21, 0) === BLOCK.REDSTONE_LAMP_ON,
+    'torch relights when the support power drops');
+
+  // 3) Three-torch ring oscillates (each stage: support + torch + wire run to
+  // the next support). Sample one torch over 20 ticks: both states must occur.
+  {
+    const w2 = new RWorld();
+    const r2 = new Redstone(w2);
+    const p2 = (x, y, z, id) => { w2.setBlock(x, y, z, id); r2.onBlockPlaced(x, y, z, id); };
+    const stages = [0, 4, 8];
+    for (const sx of stages) {
+      w2.setBlock(sx, 20, 0, BLOCK.STONE);
+      p2(sx, 21, 0, BLOCK.REDSTONE_TORCH);
+    }
+    // Wire torch i -> support i+1 (two hops on the torch level, then down).
+    for (const sx of [0, 4]) {
+      p2(sx + 1, 21, 0, BLOCK.REDSTONE_WIRE);
+      p2(sx + 2, 21, 0, BLOCK.REDSTONE_WIRE);
+      p2(sx + 3, 21, 0, BLOCK.REDSTONE_WIRE);
+      p2(sx + 3, 20, 0, BLOCK.REDSTONE_WIRE);
+    }
+    // Wrap torch C (8,21,0) back to support A (0,20,0) along z=1.
+    p2(8, 21, 1, BLOCK.REDSTONE_WIRE);
+    for (let x = 7; x >= 0; x--) p2(x, 21, 1, BLOCK.REDSTONE_WIRE);
+    p2(0, 20, 1, BLOCK.REDSTONE_WIRE);
+    const seen = new Set();
+    for (let i = 0; i < 20; i++) {
+      tick(r2);
+      seen.add(w2.getBlock(0, 21, 0));
+    }
+    assert(seen.has(BLOCK.REDSTONE_TORCH) && seen.has(BLOCK.REDSTONE_TORCH_OFF),
+      'three-torch ring clock oscillates (both torch states seen over 20 ticks)');
+  }
+
+  // 4) Sticky piston: extend pushes, retract pulls the block back.
+  place(0, 30, 0, BLOCK.STICKY_PISTON, [1, 0, 0]);
+  w.setBlock(1, 30, 0, BLOCK.STONE);
+  place(0, 31, 0, BLOCK.LEVER);
+  r.toggleLever(0, 31, 0);
+  tick(r);
+  assert(w.getBlock(1, 30, 0) === BLOCK.PISTON_HEAD && w.getBlock(2, 30, 0) === BLOCK.STONE,
+    'sticky piston extends and pushes the stone');
+  r.toggleLever(0, 31, 0);
+  tick(r);
+  assert(w.getBlock(1, 30, 0) === BLOCK.STONE && w.getBlock(2, 30, 0) === BLOCK.AIR,
+    'sticky piston retract pulls the stone back');
+
+  // 5) Observer: watched-cell change -> one-tick pulse out the back.
+  place(0, 40, 0, BLOCK.OBSERVER, [1, 0, 0]);   // watches (1,40,0), back at (-1,40,0)
+  w.setBlock(-1, 40, 0, BLOCK.REDSTONE_LAMP);
+  tick(r, 2);
+  assert(w.getBlock(-1, 40, 0) === BLOCK.REDSTONE_LAMP, 'observer idle: back lamp stays dark');
+  w.setBlock(1, 40, 0, BLOCK.STONE);            // the watched cell changes
+  tick(r);
+  assert(w.getBlock(-1, 40, 0) === BLOCK.REDSTONE_LAMP_ON, 'observer pulses the lamp behind it');
+  tick(r);
+  assert(w.getBlock(-1, 40, 0) === BLOCK.REDSTONE_LAMP, 'observer pulse lasts exactly one tick');
+
+  // 6) Dispenser rising edge fires onDispense exactly once per edge.
+  {
+    let fired = 0;
+    r.onDispense = () => fired++;
+    place(0, 50, 0, BLOCK.DISPENSER, [1, 0, 0]);
+    place(0, 51, 0, BLOCK.LEVER);
+    r.toggleLever(0, 51, 0);
+    tick(r, 5);
+    assert(fired === 1, 'dispenser fires once on the rising edge (held power does not refire)');
+    r.toggleLever(0, 51, 0);
+    tick(r, 2);
+    r.toggleLever(0, 51, 0);
+    tick(r, 2);
+    assert(fired === 2, 'dispenser fires again on the next rising edge');
+  }
+
+  // 6b) Comparator: passes rear signal, sides subtract, containers read.
+  {
+    // Rear chain: lever -> wire -> comparator -> lamp, side lever on +z.
+    place(0, 60, 0, BLOCK.LEVER);
+    place(1, 60, 0, BLOCK.REDSTONE_WIRE);
+    place(2, 60, 0, BLOCK.COMPARATOR, [1, 0, 0]);
+    w.setBlock(3, 60, 0, BLOCK.REDSTONE_LAMP);
+    place(2, 60, 1, BLOCK.LEVER); // side input
+    r.toggleLever(0, 60, 0);
+    tick(r, 2);
+    assert(w.getBlock(3, 60, 0) === BLOCK.REDSTONE_LAMP_ON,
+      'comparator (compare mode) passes the rear signal to the lamp');
+    // Side signal equal to rear: compare mode still passes (rear >= side)...
+    r.toggleLever(2, 60, 1);
+    tick(r, 2);
+    assert(w.getBlock(3, 60, 0) === BLOCK.REDSTONE_LAMP_ON,
+      'compare mode keeps output when rear >= side');
+    // ...but subtract mode kills it (15 - 15 = 0).
+    r.toggleComparator(2, 60, 0);
+    tick(r, 2);
+    assert(w.getBlock(3, 60, 0) === BLOCK.REDSTONE_LAMP,
+      'subtract mode: equal side signal zeroes the output');
+    r.toggleLever(2, 60, 1); // side off -> 15 - 0 = 15
+    tick(r, 2);
+    assert(w.getBlock(3, 60, 0) === BLOCK.REDSTONE_LAMP_ON,
+      'subtract mode restores output when the side drops');
+
+    // Container reading through the injected callback.
+    w.setBlock(1, 70, 0, BLOCK.CHEST);
+    place(2, 70, 0, BLOCK.COMPARATOR, [1, 0, 0]);
+    w.setBlock(3, 70, 0, BLOCK.REDSTONE_LAMP);
+    r.containerSignal = (x, y, z) => (x === 1 && y === 70 && z === 0 ? 7 : 0);
+    tick(r, 2);
+    assert(w.getBlock(3, 70, 0) === BLOCK.REDSTONE_LAMP_ON,
+      'comparator reads container fill behind it (signal 7 lights the lamp)');
+    r.containerSignal = () => 0; // container emptied
+    tick(r, 2);
+    assert(w.getBlock(3, 70, 0) === BLOCK.REDSTONE_LAMP,
+      'empty container drops the comparator output');
+    r.containerSignal = null;
+  }
+
+  // 7) Serialize/restore keeps the new side tables.
+  {
+    const snap = r.serialize();
+    assert(snap.torches && snap.observers && snap.dispensers && snap.comparators &&
+      Array.isArray(snap.notes),
+      'redstone serialize carries torches/observers/dispensers/comparators/notes');
+    const r3 = new Redstone(w);
+    r3.restore(JSON.parse(JSON.stringify(snap)));
+    assert(r3.torches.size === r.torches.size, 'restore rebuilds the torch registry');
+    assert(r3.observers.size === r.observers.size && r3.observerWatch.size > 0,
+      'restore rebuilds observers and their watch map');
+    assert(r3.dispensers.size === r.dispensers.size, 'restore rebuilds dispenser side-table');
+    assert(r3.comparators.size === r.comparators.size &&
+      r3.comparators.get('2,60,0').subtract === true,
+      'restore rebuilds comparators with their mode');
+  }
+
+  // 8) Pre-registry saves: torches parked in world.edits get adopted by the
+  // first-tick scan.
+  {
+    const w4 = new RWorld();
+    // Fake a world.edits map shaped like World's (chunk-keyed inner maps).
+    w4.edits = new Map([['0,0', new Map([['5,20,5', BLOCK.REDSTONE_TORCH]])]]);
+    w4.setBlock(5, 20, 5, BLOCK.REDSTONE_TORCH);
+    const r4 = new Redstone(w4);
+    tick(r4);
+    assert(r4.torches.has('5,20,5'), 'first tick adopts pre-Phase-6 torches from world.edits');
+  }
 }
 
 // ---- Noise determinism ------------------------------------------------------------------

@@ -62,6 +62,8 @@ const SHAPELESS = [
   { need: { [ITEM.INK_SAC]: 1, [ITEM.BONE_MEAL]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_GRAY, count: 1 } },
   // Legacy wool item (pre-Phase-2 sheep drops) converts 1:1 into white wool
   { need: { [ITEM.WOOL]: 1 }, out: { id: BLOCK.WOOL_WHITE, count: 1 } },
+  // Sticky piston: a piston with a slimeball smeared on the face
+  { need: { [BLOCK.PISTON]: 1, [ITEM.SLIMEBALL]: 1 }, out: { id: BLOCK.STICKY_PISTON, count: 1 } },
 ];
 
 // Inventory 2x2 recipes. `shape` is [top-left, top-right, bottom-left, bottom-right].
@@ -198,6 +200,21 @@ const SHAPED_3 = [
   { shape: [BLOCK.SPRUCE_PLANK, null, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, null, null, null], out: { id: ITEM.BOAT, count: 1 } },
   // Fishing rod: 3 sticks on the diagonal, string hanging off the tip
   { shape: [null, null, ITEM.STICK, null, ITEM.STICK, ITEM.STRING, ITEM.STICK, null, ITEM.STRING], out: { id: ITEM.FISHING_ROD, count: 1 } },
+  // ---- Phase 6: redstone completion --------------------------------------------
+  // Observer: cobble shell around redstone + glass (vanilla uses quartz — no
+  // quartz in this game yet, glass stands in for the lens).
+  { shape: [BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, ITEM.REDSTONE, ITEM.REDSTONE, BLOCK.GLASS, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE], out: { id: BLOCK.OBSERVER, count: 1 } },
+  // Dispenser: 7 cobble around a bow, redstone drive underneath
+  { shape: [BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, ITEM.BOW, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, ITEM.REDSTONE, BLOCK.COBBLESTONE], out: { id: BLOCK.DISPENSER, count: 1 } },
+  // Dropper: same shell, no bow
+  { shape: [BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, null, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, ITEM.REDSTONE, BLOCK.COBBLESTONE], out: { id: BLOCK.DROPPER, count: 1 } },
+  // Hopper: 5 iron ingots in a W around a chest
+  { shape: [ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, ITEM.IRON_INGOT, ITEM.CHEST_ITEM, ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, null], out: { id: BLOCK.HOPPER, count: 1 } },
+  // Note block: 8 planks around redstone
+  { shape: [BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, ITEM.REDSTONE, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK], out: { id: BLOCK.NOTE_BLOCK, count: 1 } },
+  // Comparator: three torches over redstone on a stone base (vanilla uses
+  // quartz in the middle — redstone stands in, no quartz yet)
+  { shape: [null, BLOCK.REDSTONE_TORCH, null, BLOCK.REDSTONE_TORCH, ITEM.REDSTONE, BLOCK.REDSTONE_TORCH, BLOCK.STONE, BLOCK.STONE, BLOCK.STONE], out: { id: BLOCK.COMPARATOR, count: 1 } },
 ];
 
 function activeSlots(grid, size) {

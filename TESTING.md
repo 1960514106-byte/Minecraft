@@ -262,3 +262,84 @@ Save round-trip:
       reappear unchanged (new fields vy/size/saddled default).
 - [ ] Save with slimes of several sizes + a saddled horse, reload: sizes,
       scales and the saddle persist.
+
+## Phase 6 — Redstone completion (SAVE_VERSION 12)
+
+Save migration:
+- [ ] A v11 world loads cleanly and reports version 12 (`dispensers`/`hoppers`
+      maps added, both empty; redstone side-table untouched).
+- [ ] Redstone torches placed BEFORE this phase still work and now invert
+      (adopted from the world edits by the first-tick scan).
+
+Redstone torch inversion (NOT gate):
+- [ ] A torch on top of a block stays lit while the block is unpowered.
+- [ ] Power the block (lever on/next to it): the torch swaps to its dimmed
+      "off" texture within ~0.2 s, stops emitting light, and anything it fed
+      (lamp, wire) drops.
+- [ ] Remove the power: the torch relights one tick later.
+- [ ] A torch never powers the block it stands on (no self-feedback flicker).
+- [ ] Three torch NOT-stages wired in a ring oscillate as a clock (a lamp on
+      the loop blinks continuously).
+- [ ] Breaking an unlit torch drops the normal redstone torch item; the unlit
+      variant is not in the creative picker; middle-click picks the lit one.
+
+Sticky piston:
+- [ ] Crafts shapeless from piston + slimeball; face has a green slime tint.
+- [ ] Extends exactly like a piston (pushes up to 8 cube blocks, meta such as
+      a note block's pitch rides along).
+- [ ] On retract it pulls the single block in front of the head back one cell;
+      non-pushable blocks (containers, obsidian...) are simply left behind.
+
+Observer:
+- [ ] Places facing TOWARD you (the eye watches the cell between you and it).
+- [ ] Any block id or meta change in the watched cell fires a single ~0.1 s
+      pulse out the BACK face (lamp behind it blinks once).
+- [ ] Watching a piston head, growing crops or flowing water all trigger it.
+- [ ] Two observers watching each other's backs form a fast clock.
+
+Dispenser & dropper:
+- [ ] Right-click opens a 9-slot screen (chest screen, retitled).
+- [ ] On a rising power edge the DISPENSER fires arrows as real projectiles
+      (they damage mobs) and ejects any other item with a push; one item per
+      pulse, held power does not repeat-fire.
+- [ ] The DROPPER always just drops the item gently out the front.
+- [ ] Both face the direction you looked when placing (up/down included).
+- [ ] Breaking one spills its contents; explosion does the same.
+
+Hopper:
+- [ ] Crafts from 5 iron (W shape) + chest in the middle.
+- [ ] Placing against a container's SIDE aims the spout into it; placing on
+      top of anything aims down.
+- [ ] Item drops landing on the hopper are vacuumed into its 5 slots.
+- [ ] Pulls one item per 0.4 s from a chest/dispenser/dropper/hopper above,
+      and from a furnace's OUTPUT slot above.
+- [ ] Pushes one item per 0.4 s into the container it points at; pointing
+      DOWN into a furnace feeds the input slot, SIDEWAYS feeds the fuel slot
+      (input only accepts smeltables, fuel only burnables — simplification).
+- [ ] A powered hopper is locked (does nothing until power drops).
+- [ ] Right-click opens its 5-slot screen; breaking it spills the contents.
+- [ ] Drop → hopper → chest chain works unattended (AFK item collection).
+
+Note block:
+- [ ] Right-click cycles pitch 0→24→0 with a status message and a preview
+      tone (pitch survives save/reload — it lives in block meta).
+- [ ] A rising power edge replays the stored pitch; held power plays once.
+
+Comparator:
+- [ ] Plate-model block, places horizontally facing away from you; needs
+      solid ground; right-click toggles compare/subtract with a message.
+- [ ] Compare mode: rear signal passes when rear ≥ strongest side signal.
+- [ ] Subtract mode: output = rear − side (wire falloff visible downstream).
+- [ ] Rear against a chest/furnace/hopper/dispenser outputs its fill level
+      (floor(1 + 14·filledSlots/capacity)) — a lamp lights while the chest
+      has items, goes dark when emptied.
+
+Engine/general:
+- [ ] Containers/observers/note blocks are NOT piston-pushable (side tables
+      key by position); observers included by design — document says so.
+- [ ] All new blocks appear in the creative picker (except the unlit torch)
+      and craft in survival; recipe list shows them.
+- [ ] Serialize/reload mid-clock: torch states, observer pulses, dispenser
+      edge-state, comparator mode all resume without a stuck state.
+- [ ] `node test/smoke.mjs` green; `?debug=1` exposes `__game.redstone`,
+      `hoppers`, `dispensers`, `placeBlock`, `cycleNoteBlock`.

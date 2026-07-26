@@ -188,7 +188,9 @@
     #inventory .grid2 { display: grid; grid-template-columns: repeat(3, 44px); grid-gap: 4px; }
     #inventory .grid3 { display: grid; grid-template-columns: repeat(3, 44px); grid-gap: 4px; }
     #inventory .arrow { font-size: 24px; opacity: 0.7; }
-    #inventory .gridMain { display: grid; grid-template-columns: repeat(9, 44px); grid-gap: 4px; }
+    #inventory .gridMain, #furnaceScreen .gridMain, #chestScreen .gridMain {
+      display: grid; grid-template-columns: repeat(9, 44px); grid-gap: 4px;
+    }
     #inventory .hotbarRow { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.15); }
     #inventory .hint { margin-top: 12px; font-size: 11px; opacity: 0.55; text-align: center; }
     #inventory .recipeList {
@@ -590,9 +592,12 @@
     </div>
   </div>
 
+  <!-- Shared container screen: chests (27 slots), dispensers/droppers (9) and
+       hoppers (5) all reuse this panel — main.js retitles it and hides the
+       surplus grid cells (documented choice over cloning the markup). -->
   <div id="chestScreen" class="hidden">
     <div class="panel">
-      <h3>CHEST</h3>
+      <h3 id="chestTitle">CHEST</h3>
       <div class="gridMain" id="chestGrid"></div>
       <h3 style="margin-top:14px;">INVENTORY</h3>
       <div class="gridMain backpack" id="chestBackpackGrid"></div>

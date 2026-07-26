@@ -58,6 +58,11 @@ export class World {
     // saved): loot chests waiting for their first open, and mob spawner types.
     this.structureLoot = new Map();     // "x,y,z" -> loot table kind
     this.structureSpawners = new Map(); // "x,y,z" -> mob type
+
+    // Optional cell-change callback (x, y, z), fired by setBlock/setBlocks
+    // whenever a cell's id or meta actually changes. main.js points it at the
+    // dimension's redstone engine so observers can watch cells cheaply.
+    this.onCellChanged = null;
   }
 
   // Compat: dimensions without sky (nether/end) have no sunlight; lighting.js
@@ -610,9 +615,14 @@ export class World {
     const lx = posMod(x, CHUNK_SIZE), lz = posMod(z, CHUNK_SIZE);
     const chunk = this.getOrCreateChunk(cx, cz);
     const old = chunk.getBlockLocal(lx, y, lz);
+    const oldMeta = chunk.getMetaLocal(lx, y, lz);
     chunk.setBlockLocal(lx, y, lz, id);
     chunk.setMetaLocal(lx, y, lz, meta);
     this.recordEdit(cx, cz, lx, y, lz, id, meta); // remember the change for save/reload
+
+    // Lightweight cell-change notification (observers, main.js wires it to
+    // the dimension's redstone engine). Only fires on a real change.
+    if (this.onCellChanged && (old !== id || oldMeta !== meta)) this.onCellChanged(x, y, z);
 
     // Only re-flood light when the edit can change it (different emission or
     // opacity). Same-shape swaps like doors toggling or repeaters flickering
@@ -645,9 +655,13 @@ export class World {
       const lx = posMod(e.x, CHUNK_SIZE), lz = posMod(e.z, CHUNK_SIZE);
       const chunk = this.getOrCreateChunk(cx, cz);
       const old = chunk.getBlockLocal(lx, e.y, lz);
+      const oldMeta = chunk.getMetaLocal(lx, e.y, lz);
       chunk.setBlockLocal(lx, e.y, lz, e.id);
       chunk.setMetaLocal(lx, e.y, lz, e.meta || 0);
       this.recordEdit(cx, cz, lx, e.y, lz, e.id, e.meta || 0);
+      if (this.onCellChanged && (old !== e.id || oldMeta !== (e.meta || 0))) {
+        this.onCellChanged(e.x, e.y, e.z);
+      }
       if (lightLevel(old) !== lightLevel(e.id) || isTransparent(old) !== isTransparent(e.id)) {
         this._markLightDirty(e.x, e.z);
       }

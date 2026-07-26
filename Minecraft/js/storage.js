@@ -144,7 +144,18 @@ function v10to11(save) {
   return save;
 }
 
-const MIGRATIONS = { 7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11 };
+// v11 -> v12: Phase 6 redstone completion. Two new per-block container maps
+// (dispensers+droppers share one, hoppers the other) default to empty. The
+// redstone side-table gained torches/observers/dispensers/notes fields, but
+// Redstone.restore() defaults those when absent so nothing else changes.
+function v11to12(save) {
+  if (!save.dispensers) save.dispensers = {};
+  if (!save.hoppers) save.hoppers = {};
+  save.version = 12;
+  return save;
+}
+
+const MIGRATIONS = { 7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11, 11: v11to12 };
 
 export function migrateSave(save) {
   if (!save || typeof save.version !== 'number') return save;

@@ -86,6 +86,29 @@ vendored locally under `js/vendor/`.
   **pressure plate** (player/mob/minecart weight), **repeater** with
   right-click-adjustable 1–4 tick delay, **redstone lamp**, and **pistons**
   that push up to 8 blocks
+- **Redstone torches invert** (NOT gate): powering the block a torch stands on
+  turns it off, one tick later — build NOT gates and torch-ring clocks. The
+  inversion is tick-settled and double-buffered, so feedback loops oscillate
+  instead of recursing
+- **Sticky pistons** (piston + slimeball) pull the block in front of the head
+  back when they retract
+- **Observers** watch the cell their face points at and fire a one-tick pulse
+  out their back whenever the watched block (or its metadata) changes; they
+  face toward you when placed
+- **Dispensers** (9 slots) shoot arrows as real projectiles and eject other
+  items on a rising power edge; **droppers** (9 slots) always just drop the
+  item out the front
+- **Hoppers** (5 slots, iron + chest) vacuum item drops off their top, pull
+  from the container above (a furnace's output slot included) and push into
+  the container their spout points at — place against a chest's side to feed
+  it sideways, or on top of anything to feed downward (down feeds a furnace's
+  input, sideways its fuel). A powered hopper is locked
+- **Note blocks**: right-click cycles the pitch (0–24, stored per-block); a
+  rising power edge plays the stored note
+- **Comparators**: analog output = rear signal (compare mode passes it when
+  rear ≥ strongest side; right-click for subtract mode: rear − side). Point
+  the rear at a chest/furnace/hopper/dispenser to read its fill level
+  (1–15 by filled slots)
 - Doors, TNT, lamps and powered rails all react to power changes anywhere in
   the connected wire network
 
@@ -162,6 +185,8 @@ offline - no internet connection or CDN is required. See the import map in
 | Throw ender pearl | Right click with an ender pearl (teleports you) |
 | Open / close door | Right click the door |
 | Press button / cycle repeater delay | Right click it |
+| Toggle comparator mode / cycle note-block pitch | Right click it |
+| Open dispenser / dropper / hopper | Right click it |
 | Ride a minecart | Right click a cart; `W`/`S` push, `Space` hops off |
 | Saddle a horse | Right click a horse while holding a Saddle |
 | Ride a horse | Right click a saddled horse; `WASD` steers, `Space` jumps, `Shift` dismounts |
@@ -210,6 +235,8 @@ js/
   redstone.js     # tick-based redstone: wire, button, plate, repeater, piston...
   furnace.js      # persistent background smelting
   chest.js        # per-block chest storage
+  dispensers.js   # per-block 9-slot storage for dispensers AND droppers
+  hoppers.js      # per-block hopper storage (5 slots + spout direction)
   inventory.js    # finite stack-slot inventory (hotbar + backpack)
   crafting.js     # shapeless, 2x2 and 3x3 recipes
   drops.js        # dropped item entities
@@ -256,7 +283,14 @@ Furnace: 8 stone ring        Chest: 8 planks ring       Bed: planks + wool
 TNT: gunpowder/sand checker  Bow: sticks + string       Arrows: gravel/stick/feather
 Button: 1 stone              Pressure plate: 2 stone side by side
 Repeater: 2 redstone torches + redstone over 3 stone
+Comparator: 3 redstone torches + redstone over 3 stone
 Piston: 3 planks / cobble + iron + redstone
+Sticky piston: piston + slimeball (shapeless)
+Observer: 6 cobble + 2 redstone + glass (middle row: redstone, redstone, glass)
+Dispenser: 7 cobble + bow (center) + redstone (bottom middle)
+Dropper: 7 cobble + redstone (bottom middle, no bow)
+Hopper: 5 iron in a W + chest (center)
+Note block: 8 planks + redstone (center)
 Redstone lamp: 4 redstone + glowstone     Glowstone: 4 glowstone dust
 Rails x16: 6 iron + stick    Powered rails x6: 6 gold + stick + redstone
 Minecart: 5 iron (U shape)   Flint & steel: iron + gravel
@@ -269,5 +303,5 @@ Overlord Sigil: 4 blaze rods + 4 obsidian + 1 diamond
 - Web Worker chunk pipeline (generation + lighting + meshing off the main thread)
 - Flowing water/lava dynamics
 - Splitting `main.js` into focused UI/interaction modules
-- More nether biomes, potions/brewing, sticky pistons, comparators
+- More nether biomes, potions/brewing
 - Multiplayer

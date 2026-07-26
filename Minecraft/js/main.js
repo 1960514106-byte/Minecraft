@@ -19,6 +19,8 @@ import { MobManager } from './mobs.js';
 import { MOB_DEFS, mobDef } from './mobdefs.js';
 import { FurnaceManager } from './furnace.js';
 import { ChestManager, CHEST_SLOTS } from './chest.js';
+import { DispenserManager } from './dispensers.js';
+import { HopperManager, insertStack } from './hoppers.js';
 import { craftResult, craftCost, SHAPELESS, SHAPED_2, SHAPED_3 } from './crafting.js';
 import { AchievementManager } from './achievements.js';
 import { Minimap } from './minimap.js';
@@ -123,6 +125,10 @@ function ensureNether() {
     redstoneNether = new Redstone(netherWorld);
     redstoneNether.onIgnite = (x, y, z) => igniteTNT(x, y, z);
     redstoneNether.onSound = (name) => feedback.play(name);
+    redstoneNether.onDispense = (x, y, z, dir) => dispenseFrom(x, y, z, dir);
+    redstoneNether.onNote = (x, y, z) => playNoteBlock(x, y, z);
+    redstoneNether.containerSignal = (x, y, z) => containerFillSignal(x, y, z);
+    netherWorld.onCellChanged = (x, y, z) => redstoneNether.onCellChanged(x, y, z);
     if (save && save.netherRedstone) redstoneNether.restore(save.netherRedstone);
     fluidsNether = new FluidSim(netherWorld);
     fluidsNether.onEffect = fluidEffect;
@@ -131,7 +137,7 @@ function ensureNether() {
   return netherWorld;
 }
 
-const SAVE_VERSION = 11;
+const SAVE_VERSION = 12;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
@@ -182,6 +188,8 @@ let drops = new DropManager(scene, world, atlas, hasSave ? save.drops : null);
 const mobs = new MobManager(scene, world, hasSave ? save.mobs : null);
 const furnaces = new FurnaceManager(hasSave ? save.furnaces : null);
 const chests = new ChestManager(hasSave ? save.chests : null);
+const dispensers = new DispenserManager(hasSave ? save.dispensers : null); // + droppers
+const hoppers = new HopperManager(hasSave ? save.hoppers : null);
 const achievements = new AchievementManager(hasSave ? save.achievements : null);
 const minimap = new Minimap(document.body);
 const weather = new Weather(scene);
@@ -236,6 +244,11 @@ mobs.onEnvKill = (result) => handleMobKill(result);
 mobs.onBreed = () => achievements.trigger({ type: 'breed' });
 redstoneOver.onIgnite = (x, y, z) => igniteTNT(x, y, z);
 redstoneOver.onSound = (name) => feedback.play(name);
+redstoneOver.onDispense = (x, y, z, dir) => dispenseFrom(x, y, z, dir);
+redstoneOver.onNote = (x, y, z) => playNoteBlock(x, y, z);
+redstoneOver.containerSignal = (x, y, z) => containerFillSignal(x, y, z);
+// Observers watch cells through the world's cell-change notification.
+overworld.onCellChanged = (x, y, z) => redstoneOver.onCellChanged(x, y, z);
 
 // Per-block containers (furnaces/chests) key by position; the nether prefixes
 // its keys so the two dimensions can't collide on the same coordinates.
@@ -412,9 +425,17 @@ function explodeAt(center, radius) {
         } else if (id === BLOCK.CHEST) {
           for (const d of chests.remove(dimKey(bx, by, bz))) drops.spawn(d.id, d.count, dropPos);
           if (world.structureLoot) world.structureLoot.delete(key);
+        } else if (id === BLOCK.DISPENSER || id === BLOCK.DROPPER) {
+          for (const d of dispensers.remove(dimKey(bx, by, bz))) drops.spawn(d.id, d.count, dropPos);
+          redstone.onBlockRemoved(bx, by, bz, id);
+        } else if (id === BLOCK.HOPPER) {
+          for (const d of hoppers.remove(dimKey(bx, by, bz))) drops.spawn(d.id, d.count, dropPos);
         } else if (id === BLOCK.LEVER || id === BLOCK.BUTTON || id === BLOCK.REPEATER ||
                    id === BLOCK.REPEATER_ON || id === BLOCK.PISTON || id === BLOCK.REDSTONE_WIRE ||
-                   id === BLOCK.REDSTONE_TORCH || id === BLOCK.REDSTONE_BLOCK) {
+                   id === BLOCK.REDSTONE_TORCH || id === BLOCK.REDSTONE_TORCH_OFF ||
+                   id === BLOCK.REDSTONE_BLOCK || id === BLOCK.STICKY_PISTON ||
+                   id === BLOCK.OBSERVER || id === BLOCK.NOTE_BLOCK ||
+                   id === BLOCK.COMPARATOR) {
           redstone.onBlockRemoved(bx, by, bz, id);
         } else if (id === BLOCK.MOB_SPAWNER && world.structureSpawners) {
           world.structureSpawners.delete(key);
@@ -619,6 +640,8 @@ function gatherState() {
     mobs: mobs.serialize(),
     furnaces: furnaces.serialize(),
     chests: chests.serialize(),
+    dispensers: dispensers.serialize(),
+    hoppers: hoppers.serialize(),
     achievements: achievements.serialize(),
     weather: weather.serialize(),
     xp: xpManager.serialize(),
@@ -873,6 +896,13 @@ function breakBlock(hit, toolId = null) {
     // A generated loot chest destroyed unopened loses its loot.
     if (world.structureLoot) world.structureLoot.delete(`${hit.x},${hit.y},${hit.z}`);
   }
+  // Dispensers/droppers/hoppers spill their contents like chests do.
+  if (id === BLOCK.DISPENSER || id === BLOCK.DROPPER) {
+    for (const d of dispensers.remove(dimKey(hit.x, hit.y, hit.z))) drops.spawn(d.id, d.count, dropPos);
+  }
+  if (id === BLOCK.HOPPER) {
+    for (const d of hoppers.remove(dimKey(hit.x, hit.y, hit.z))) drops.spawn(d.id, d.count, dropPos);
+  }
   // Mining a spawner disables it.
   if (id === BLOCK.MOB_SPAWNER && world.structureSpawners) {
     world.structureSpawners.delete(`${hit.x},${hit.y},${hit.z}`);
@@ -977,6 +1007,7 @@ const PICK_REMAP = {
   [BLOCK.PISTON_HEAD]: BLOCK.PISTON,
   [BLOCK.POWERED_RAIL_ON]: BLOCK.POWERED_RAIL,
   [BLOCK.REPEATER_ON]: BLOCK.REPEATER,
+  [BLOCK.REDSTONE_TORCH_OFF]: BLOCK.REDSTONE_TORCH,
   [BLOCK.REDSTONE_LAMP_ON]: BLOCK.REDSTONE_LAMP,
   [BLOCK.WHEAT_1]: BLOCK.WHEAT_0,
   [BLOCK.WHEAT_2]: BLOCK.WHEAT_0,
@@ -1133,6 +1164,18 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       openChest(hit.x, hit.y, hit.z);
       return;
     }
+    // Dispensers, droppers and hoppers reuse the chest screen with fewer slots.
+    {
+      const cid = hit && world.getBlock(hit.x, hit.y, hit.z);
+      if (cid === BLOCK.DISPENSER || cid === BLOCK.DROPPER) {
+        openChest(hit.x, hit.y, hit.z, 'dispenser');
+        return;
+      }
+      if (cid === BLOCK.HOPPER) {
+        openChest(hit.x, hit.y, hit.z, 'hopper');
+        return;
+      }
+    }
     if (hit && world.getBlock(hit.x, hit.y, hit.z) === BLOCK.ENCHANTING_TABLE) {
       openEnchantScreen();
       return;
@@ -1194,6 +1237,19 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     if (hitBlock === BLOCK.REPEATER || hitBlock === BLOCK.REPEATER_ON) {
       const d = redstone.cycleRepeater(hit.x, hit.y, hit.z);
       survival._setMessage(`Repeater delay: ${d} tick${d > 1 ? 's' : ''}`);
+      return;
+    }
+
+    // Note block: right click cycles the pitch (meta 0..24) and previews it.
+    if (hitBlock === BLOCK.NOTE_BLOCK) {
+      cycleNoteBlock(hit.x, hit.y, hit.z);
+      return;
+    }
+
+    // Comparator: right click toggles compare <-> subtract mode.
+    if (hitBlock === BLOCK.COMPARATOR) {
+      const sub = redstone.toggleComparator(hit.x, hit.y, hit.z);
+      survival._setMessage(`Comparator: ${sub ? 'subtract' : 'compare'} mode`);
       return;
     }
 
@@ -1446,7 +1502,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     // Rails and redstone fixtures need solid ground beneath them.
     if ((blockId === BLOCK.RAIL || blockId === BLOCK.POWERED_RAIL ||
          blockId === BLOCK.PRESSURE_PLATE || blockId === BLOCK.BUTTON ||
-         blockId === BLOCK.REPEATER) && !isSolid(world.getBlock(px, py - 1, pz))) {
+         blockId === BLOCK.REPEATER || blockId === BLOCK.COMPARATOR) &&
+        !isSolid(world.getBlock(px, py - 1, pz))) {
       return;
     }
     // Sugar cane: needs sand/dirt/grass below (or stacks on cane, max 3) and
@@ -1506,16 +1563,31 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       triggerSwing();
       feedback.play('place');
       feedback.placeBurst(blockId, new THREE.Vector3(px + 0.5, py + 0.5, pz + 0.5));
-      // Pistons and repeaters remember which way the player was facing.
+      // Directional redstone blocks remember which way the player was facing.
+      // Repeaters stay horizontal; the rest also aim straight up/down.
       let placeOpts;
-      if (blockId === BLOCK.PISTON || blockId === BLOCK.REPEATER) {
+      if (blockId === BLOCK.PISTON || blockId === BLOCK.STICKY_PISTON ||
+          blockId === BLOCK.OBSERVER || blockId === BLOCK.DISPENSER ||
+          blockId === BLOCK.DROPPER || blockId === BLOCK.REPEATER ||
+          blockId === BLOCK.COMPARATOR) {
         camera.getWorldDirection(_dir);
+        const vertical = blockId !== BLOCK.REPEATER && blockId !== BLOCK.COMPARATOR;
         let d;
-        if (blockId === BLOCK.PISTON && _dir.y < -0.75) d = [0, -1, 0];
-        else if (blockId === BLOCK.PISTON && _dir.y > 0.75) d = [0, 1, 0];
+        if (vertical && _dir.y < -0.75) d = [0, -1, 0];
+        else if (vertical && _dir.y > 0.75) d = [0, 1, 0];
         else if (Math.abs(_dir.x) >= Math.abs(_dir.z)) d = [Math.sign(_dir.x) || 1, 0, 0];
         else d = [0, 0, Math.sign(_dir.z) || 1];
+        // Observers face TOWARD the player (vanilla): the watched cell sits
+        // between you and the block, the pulse fires out the far side.
+        if (blockId === BLOCK.OBSERVER) d = [-d[0], -d[1], -d[2]];
         placeOpts = { dir: d };
+      }
+      // Hopper spout aims into the clicked block (place against a chest's
+      // side to feed it); a placement that would aim up defaults to down.
+      if (blockId === BLOCK.HOPPER) {
+        let hd = [-hit.nx, -hit.ny, -hit.nz];
+        if (hd[1] > 0) hd = [0, -1, 0];
+        hoppers.getOrCreate(dimKey(px, py, pz), hd).dir = hd;
       }
       redstone.onBlockPlaced(px, py, pz, blockId, placeOpts);
       refreshHotbar();
@@ -1959,6 +2031,7 @@ const CREATIVE_EXCLUDED = new Set([
   BLOCK.AIR, BLOCK.FURNACE_LIT, BLOCK.DOOR_TOP, BLOCK.DOOR_TOP_OPEN,
   BLOCK.DOOR_BOTTOM_OPEN, BLOCK.BED_HEAD, BLOCK.PISTON_HEAD, BLOCK.REPEATER_ON,
   BLOCK.POWERED_RAIL_ON, BLOCK.REDSTONE_LAMP_ON, BLOCK.NETHER_PORTAL,
+  BLOCK.REDSTONE_TORCH_OFF,
   BLOCK.WHEAT_1, BLOCK.WHEAT_2, BLOCK.WHEAT_3, BLOCK.CARROT_1, BLOCK.CARROT_2,
 ]);
 
@@ -2070,6 +2143,25 @@ if (new URLSearchParams(location.search).has('debug')) {
       world.setBlock(x, y, z, id, meta);
       fluids.wake(x, y, z);
     },
+    // ---- Phase 6: redstone handles for automated checks ---------------------
+    get redstone() { return redstone; },
+    hoppers,
+    dispensers,
+    chests,
+    furnaces,
+    projectiles,
+    dimKey: (x, y, z) => dimKey(x, y, z),
+    cycleNoteBlock: (x, y, z) => cycleNoteBlock(x, y, z),
+    // Place a block THROUGH the real registration path (redstone side tables,
+    // hopper direction) — the equivalent of a player right-click placement,
+    // with the orientation supplied directly instead of from the camera.
+    placeBlock: (x, y, z, id, meta = 0, dir = null) => {
+      world.setBlock(x, y, z, id, meta);
+      fluids.wake(x, y, z);
+      if (id === BLOCK.HOPPER) hoppers.getOrCreate(dimKey(x, y, z), dir || [0, -1, 0]).dir = dir || [0, -1, 0];
+      redstone.onBlockPlaced(x, y, z, id, dir ? { dir } : {});
+    },
+    breakBlockAt: (x, y, z) => breakBlock({ x, y, z }),
   };
 }
 
@@ -2341,14 +2433,26 @@ function syncFurnaceBlock(key, burning) {
   else if (!burning && cur === BLOCK.FURNACE_LIT) w.setBlock(fx, fy, fz, BLOCK.FURNACE);
 }
 
-// ---- Chest screen -----------------------------------------------------------
+// ---- Chest screen (shared by chests, dispensers/droppers and hoppers) --------
+// One screen, three container sizes: main.js retitles the panel and hides the
+// surplus cells instead of cloning the markup (documented choice).
 const chestScreenEl = document.getElementById('chestScreen');
+const chestTitleEl = document.getElementById('chestTitle');
 const chestGridEl = document.getElementById('chestGrid');
 const chestBackpackGridEl = document.getElementById('chestBackpackGrid');
 const chestHotbarGridEl = document.getElementById('chestHotbarGrid');
 
 let chestOpen = false;
 let openChestKey = null;
+let openChestKind = 'chest'; // 'chest' | 'dispenser' (also droppers) | 'hopper'
+
+// The slots array of whatever container the screen is showing.
+function activeContainerSlots() {
+  if (!openChestKey) return null;
+  if (openChestKind === 'dispenser') return dispensers.getOrCreate(openChestKey);
+  if (openChestKind === 'hopper') return hoppers.getOrCreate(openChestKey).slots;
+  return chests.getOrCreate(openChestKey);
+}
 
 const chestCells = [];
 const chestBackpackCells = [];
@@ -2372,8 +2476,12 @@ for (let i = 0; i < HOTBAR_SIZE; i++) {
 
 function refreshChest() {
   if (!openChestKey) return;
-  const slots = chests.getOrCreate(openChestKey);
-  for (let i = 0; i < CHEST_SLOTS; i++) paintCell(chestCells[i], slots[i]);
+  const slots = activeContainerSlots();
+  for (let i = 0; i < CHEST_SLOTS; i++) {
+    const inRange = i < slots.length;
+    chestCells[i].style.display = inRange ? '' : 'none';
+    if (inRange) paintCell(chestCells[i], slots[i]);
+  }
   for (let i = 0; i < HOTBAR_SIZE; i++) paintCell(chestHotbarCells[i], inventory.get(i));
   for (let i = HOTBAR_SIZE; i < INVENTORY_SIZE; i++) paintCell(chestBackpackCells[i - HOTBAR_SIZE], inventory.get(i));
   paintHeld();
@@ -2381,7 +2489,8 @@ function refreshChest() {
 
 function onChestSlotClick(i, e) {
   if (!openChestKey) return;
-  const slots = chests.getOrCreate(openChestKey);
+  const slots = activeContainerSlots();
+  if (i >= slots.length) return;
   const slot = slots[i];
   if (e && e.button === 2) {
     if (held) {
@@ -2455,12 +2564,18 @@ function onChestInvClick(i, e) {
   scheduleSave();
 }
 
-function openChest(x, y, z) {
+function openChest(x, y, z, kind = 'chest') {
   if (!survival.alive) return;
   openChestKey = dimKey(x, y, z);
+  openChestKind = kind;
+  chestTitleEl.textContent =
+    kind === 'hopper' ? 'HOPPER'
+      : kind === 'dispenser' ? (world.getBlock(x, y, z) === BLOCK.DROPPER ? 'DROPPER' : 'DISPENSER')
+        : 'CHEST';
   // First open of a naturally-generated chest: roll its loot table.
   const posKey = `${x},${y},${z}`;
-  if (!chests.chests.has(openChestKey) && world.structureLoot && world.structureLoot.has(posKey)) {
+  if (kind === 'chest' &&
+      !chests.chests.has(openChestKey) && world.structureLoot && world.structureLoot.has(posKey)) {
     const kind = world.structureLoot.get(posKey);
     world.structureLoot.delete(posKey);
     let seed = (Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 2246822519) ^ 0x5bf03635) | 0;
@@ -2493,6 +2608,179 @@ function closeChest() {
   if (survival.alive) overlay.classList.remove('hidden');
   refreshHotbar();
   scheduleSave();
+}
+
+// ---- Dispensers / droppers ----------------------------------------------------
+// Fired by the redstone engine on a rising edge. Dispensers USE the item
+// (arrows become real projectiles); droppers just spit the item out. Both
+// eject the first occupied slot, one item per pulse.
+function dispenseFrom(x, y, z, dir) {
+  const key = dimKey(x, y, z);
+  const slots = dispensers.getOrCreate(key);
+  const idx = slots.findIndex((s) => s);
+  if (idx < 0) {
+    feedback.play('click'); // vanilla's empty-dispenser click
+    return;
+  }
+  const s = slots[idx];
+  const isDispenser = world.getBlock(x, y, z) === BLOCK.DISPENSER;
+  const mouth = new THREE.Vector3(x + 0.5 + dir[0] * 0.7, y + 0.5 + dir[1] * 0.7, z + 0.5 + dir[2] * 0.7);
+  if (isDispenser && s.id === ITEM.ARROW) {
+    projectiles.shootArrow(mouth, new THREE.Vector3(dir[0], dir[1], dir[2]), 22, 5, true);
+    feedback.play('bowShoot');
+  } else {
+    const d = drops.spawn(s.id, 1, mouth, true);
+    if (d) d.velocity.set(dir[0] * (isDispenser ? 4 : 2), 1.5, dir[2] * (isDispenser ? 4 : 2));
+    feedback.play('click');
+  }
+  s.count -= 1;
+  if (s.count <= 0) slots[idx] = null;
+  if (chestOpen && openChestKey === key) refreshChest();
+  scheduleSave();
+}
+
+// ---- Note blocks ----------------------------------------------------------------
+// Right-click cycles the pitch (stored in per-voxel meta, 0..24); a redstone
+// rising edge replays the stored pitch.
+function cycleNoteBlock(x, y, z) {
+  const pitch = (world.getMeta(x, y, z) + 1) % 25;
+  world.setBlock(x, y, z, BLOCK.NOTE_BLOCK, pitch);
+  feedback.playNote(pitch);
+  survival._setMessage(`Note: ${pitch}`);
+  scheduleSave();
+  return pitch;
+}
+
+function playNoteBlock(x, y, z) {
+  feedback.playNote(world.getMeta(x, y, z));
+}
+
+// ---- Comparator container reading ------------------------------------------------
+// Signal strength a comparator reads from the container at (x,y,z):
+// floor(1 + 14 * filledSlots / capacity), 0 when empty or not a container.
+// (Slot-count based, not item-count based — a documented simplification.)
+function containerFillSignal(x, y, z) {
+  const id = world.getBlock(x, y, z);
+  const key = dimKey(x, y, z);
+  let slots = null;
+  if (id === BLOCK.CHEST) slots = chests.chests.get(key);
+  else if (id === BLOCK.DISPENSER || id === BLOCK.DROPPER) slots = dispensers.dispensers.get(key);
+  else if (id === BLOCK.HOPPER) {
+    const h = hoppers.hoppers.get(key);
+    slots = h ? h.slots : null;
+  } else if (id === BLOCK.FURNACE || id === BLOCK.FURNACE_LIT) {
+    const f = furnaces.furnaces.get(key);
+    slots = f ? [f.input, f.fuel, f.output] : null;
+  } else {
+    return 0;
+  }
+  if (!slots || slots.length === 0) return 0;
+  let filled = 0;
+  for (const s of slots) if (s) filled++;
+  return filled === 0 ? 0 : Math.floor(1 + 14 * (filled / slots.length));
+}
+
+// ---- Hoppers ----------------------------------------------------------------------
+// Every 0.4 s each hopper in the ACTIVE dimension (matching the per-dimension
+// redstone/fluids engines): (a) vacuums item drops resting on top, (b) pulls
+// one item from the container above (furnace: its OUTPUT slot), (c) pushes one
+// item into the container its spout points at. A powered hopper is locked.
+const HOPPER_TICK = 0.4;
+let hopperAcc = 0;
+
+// Container adapter for hopper transfers at a world cell, or null.
+function containerAt(x, y, z) {
+  const id = world.getBlock(x, y, z);
+  const key = dimKey(x, y, z);
+  if (id === BLOCK.CHEST) return { slots: chests.getOrCreate(key) };
+  if (id === BLOCK.DISPENSER || id === BLOCK.DROPPER) return { slots: dispensers.getOrCreate(key) };
+  if (id === BLOCK.HOPPER) return { slots: hoppers.getOrCreate(key).slots };
+  if (id === BLOCK.FURNACE || id === BLOCK.FURNACE_LIT) return { furnace: furnaces.getOrCreate(key) };
+  return null;
+}
+
+function tickHoppers() {
+  if (hoppers.hoppers.size === 0) return;
+  const prefix = world.dim.editKeyPrefix;
+  let changed = false;
+  for (const [key, h] of hoppers.hoppers) {
+    if ((key.startsWith('N|') ? 'N|' : '') !== prefix) continue; // inactive dim
+    const { x, y, z } = parseDimKey(key);
+    if (world.getBlock(x, y, z) !== BLOCK.HOPPER) continue; // stale entry
+    if (redstone.isPowered(x, y, z)) continue;              // powered = locked
+
+    // (a) Vacuum drops sitting on top of the hopper.
+    for (let i = drops.drops.length - 1; i >= 0; i--) {
+      const d = drops.drops[i];
+      const p = d.sprite.position;
+      if (Math.floor(p.x) === x && Math.floor(p.z) === z && p.y > y + 0.5 && p.y < y + 2.2) {
+        const left = insertStack(h.slots, d.id, d.count);
+        if (left < d.count) changed = true;
+        if (left <= 0) drops.removeAt(i);
+        else d.count = left;
+      }
+    }
+
+    // (b) Pull one item from the container directly above.
+    const src = containerAt(x, y + 1, z);
+    if (src) {
+      if (src.furnace) {
+        const out = src.furnace.output;
+        if (out && insertStack(h.slots, out.id, 1) === 0) {
+          out.count -= 1;
+          if (out.count <= 0) src.furnace.output = null;
+          changed = true;
+        }
+      } else {
+        const si = src.slots.findIndex((s) => s);
+        if (si >= 0) {
+          const s = src.slots[si];
+          if (insertStack(h.slots, s.id, 1) === 0) {
+            s.count -= 1;
+            if (s.count <= 0) src.slots[si] = null;
+            changed = true;
+          }
+        }
+      }
+    }
+
+    // (c) Push one item into the container the spout points at.
+    const hi = h.slots.findIndex((s) => s);
+    if (hi >= 0) {
+      const s = h.slots[hi];
+      const tgt = containerAt(x + h.dir[0], y + h.dir[1], z + h.dir[2]);
+      let moved = false;
+      if (tgt && tgt.slots) {
+        moved = insertStack(tgt.slots, s.id, 1) === 0;
+      } else if (tgt && tgt.furnace) {
+        // Pointing down feeds the input, sideways feeds the fuel (vanilla).
+        // Simplification: input only accepts smeltables, fuel only burnables,
+        // so junk never clogs a furnace.
+        const f = tgt.furnace;
+        if (h.dir[1] === -1) {
+          if (smeltResult(s.id) && (!f.input || (f.input.id === s.id && f.input.count < itemStackMax(s.id)))) {
+            if (f.input) f.input.count += 1;
+            else f.input = { id: s.id, count: 1 };
+            moved = true;
+          }
+        } else if (fuelValue(s.id) > 0 && (!f.fuel || (f.fuel.id === s.id && f.fuel.count < itemStackMax(s.id)))) {
+          if (f.fuel) f.fuel.count += 1;
+          else f.fuel = { id: s.id, count: 1 };
+          moved = true;
+        }
+      }
+      if (moved) {
+        s.count -= 1;
+        if (s.count <= 0) h.slots[hi] = null;
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    if (chestOpen) refreshChest();
+    if (furnaceOpen) refreshFurnace();
+    scheduleSave();
+  }
 }
 
 // ---- Enchanting screen --------------------------------------------------------
@@ -3113,8 +3401,16 @@ function animate() {
 
   updateHand(dt);
 
-  // Redstone tick engine (buttons, plates, repeaters, pistons, lamps, rails).
+  // Redstone tick engine (buttons, plates, torches, observers, repeaters,
+  // pistons, lamps, rails, dispensers, note blocks).
   redstone.update(dt, p, mobs.mobs, minecarts.carts);
+
+  // Hoppers: item logistics on their own 0.4 s cadence.
+  hopperAcc += dt;
+  while (hopperAcc >= HOPPER_TICK) {
+    hopperAcc -= HOPPER_TICK;
+    tickHoppers();
+  }
 
   // Flowing liquids (5 Hz cellular automaton; writes persist as world edits).
   if (fluids.update(dt)) scheduleSave();

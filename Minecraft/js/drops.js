@@ -47,21 +47,24 @@ export class DropManager {
     return mat;
   }
 
+  // Returns the spawned drop entity (dispensers set a custom eject velocity).
   spawn(id, count, pos, quiet = false) {
-    if (!count || count <= 0) return;
+    if (!count || count <= 0) return null;
     const sprite = new THREE.Sprite(this.materialFor(id));
     sprite.position.copy(pos);
     sprite.scale.setScalar(0.42);
     this.scene.add(sprite);
 
     const jitter = quiet ? 0 : 1;
-    this.drops.push({
+    const drop = {
       id,
       count,
       sprite,
       velocity: new THREE.Vector3((Math.random() - 0.5) * jitter, quiet ? 0 : 2.4, (Math.random() - 0.5) * jitter),
       age: 0,
-    });
+    };
+    this.drops.push(drop);
+    return drop;
   }
 
   removeAt(i) {

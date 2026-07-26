@@ -70,6 +70,14 @@ const BLOCK_COLORS = {
   [BLOCK.SPRUCE_FENCE]: [122, 86, 52],
   [BLOCK.SANDSTONE]: [222, 206, 156],
   [BLOCK.SUGAR_CANE]: [140, 190, 96],
+  // Phase 6: redstone completion.
+  [BLOCK.STICKY_PISTON]: [124, 150, 96],
+  [BLOCK.OBSERVER]: [104, 104, 110],
+  [BLOCK.DISPENSER]: [118, 118, 122],
+  [BLOCK.DROPPER]: [118, 118, 122],
+  [BLOCK.HOPPER]: [64, 64, 70],
+  [BLOCK.NOTE_BLOCK]: [108, 78, 52],
+  [BLOCK.COMPARATOR]: [148, 148, 152],
 };
 // All 16 wool colours share the registry palette.
 for (const woolId of WOOL_BLOCKS) BLOCK_COLORS[woolId] = WOOL_RGB[woolId];

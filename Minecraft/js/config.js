@@ -143,6 +143,17 @@ export const BLOCK = {
   WOOL_GREEN: 116,
   WOOL_RED: 117,
   WOOL_BLACK: 118,
+  // ---- Phase 6: redstone completion (119+) ----------------------------------
+  // (The plan reserved 230-259 for redstone; ids continue sequentially from 119
+  // instead — the ranges were advisory and sequential keeps the space dense.)
+  REDSTONE_TORCH_OFF: 119, // technical: a torch whose support block is powered
+  STICKY_PISTON: 120,      // retraction pulls the block in front of the head
+  OBSERVER: 121,           // pulses out its back when the watched cell changes
+  DISPENSER: 122,          // 9-slot container; fires/ejects on a rising edge
+  DROPPER: 123,            // 9-slot container; drops one item on a rising edge
+  HOPPER: 124,             // 5-slot funnel; pulls drops/containers, pushes on
+  NOTE_BLOCK: 125,         // right-click cycles pitch (meta 0..24), plays on power
+  COMPARATOR: 126,         // analog: rear signal vs sides; reads container fill
 };
 
 // Wool blocks in vanilla colour order, plus the RGB used by the texture
@@ -444,6 +455,20 @@ export const TILES = {
   INK_SAC:        211,
   // --- row 53 (212..215) ---
   SADDLE:         212,
+  // ---- Phase 6 (213+): redstone completion ------------------------------------
+  REDSTONE_TORCH_OFF: 213,
+  STICKY_PISTON_FACE: 214,
+  OBSERVER_FACE:  215,
+  // --- row 54 (216..219) ---
+  OBSERVER_SIDE:  216,
+  OBSERVER_BACK:  217,
+  DISPENSER_FRONT: 218,
+  DROPPER_FRONT:  219,
+  // --- row 55 (220..223) ---
+  HOPPER_SIDE:    220,
+  HOPPER_TOP:     221,
+  NOTE_BLOCK:     222,
+  COMPARATOR:     223,
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -705,6 +730,27 @@ export const BLOCKS = {
   [BLOCK.WOOL_GREEN]: { name: 'Green Wool', top: TILES.WOOL_GREEN, bottom: TILES.WOOL_GREEN, side: TILES.WOOL_GREEN, solid: true, transparent: false, hardness: 0.75 },
   [BLOCK.WOOL_RED]: { name: 'Red Wool', top: TILES.WOOL_RED, bottom: TILES.WOOL_RED, side: TILES.WOOL_RED, solid: true, transparent: false, hardness: 0.75 },
   [BLOCK.WOOL_BLACK]: { name: 'Black Wool', top: TILES.WOOL_BLACK, bottom: TILES.WOOL_BLACK, side: TILES.WOOL_BLACK, solid: true, transparent: false, hardness: 0.75 },
+  // ---- Phase 6: redstone completion --------------------------------------------
+  // Unlit torch variant (technical block, mirrors the lamp on/off pattern so
+  // lighting stays correct). Drops the regular redstone torch.
+  [BLOCK.REDSTONE_TORCH_OFF]: { name: 'Redstone Torch', top: TILES.REDSTONE_TORCH_OFF, bottom: TILES.REDSTONE_TORCH_OFF, side: TILES.REDSTONE_TORCH_OFF, solid: false, transparent: true, hardness: 0.01, model: 'torch', drops: [{ id: BLOCK.REDSTONE_TORCH, count: 1 }] },
+  // Sticky piston: same body as the piston, slime-tinted face. Orientation and
+  // extended state live in the redstone side-table (PISTON_HEAD is shared).
+  [BLOCK.STICKY_PISTON]: { name: 'Sticky Piston', top: TILES.STICKY_PISTON_FACE, bottom: TILES.PISTON_BACK, side: TILES.PISTON_SIDE, solid: true, transparent: false, hardness: 1.2, tool: 'pickaxe' },
+  // Observer: watches the cell its face points at (dir in the redstone
+  // side-table, like pistons) and pulses out its back on any id/meta change.
+  [BLOCK.OBSERVER]: { name: 'Observer', top: TILES.OBSERVER_FACE, bottom: TILES.OBSERVER_BACK, side: TILES.OBSERVER_SIDE, solid: true, transparent: false, hardness: 1.6, tool: 'pickaxe' },
+  // Dispenser/dropper: directional 9-slot containers (dispensers.js manager).
+  [BLOCK.DISPENSER]: { name: 'Dispenser', top: TILES.FURNACE_TOP, bottom: TILES.FURNACE_TOP, side: TILES.DISPENSER_FRONT, solid: true, transparent: false, hardness: 2.6, tool: 'pickaxe' },
+  [BLOCK.DROPPER]: { name: 'Dropper', top: TILES.FURNACE_TOP, bottom: TILES.FURNACE_TOP, side: TILES.DROPPER_FRONT, solid: true, transparent: false, hardness: 2.6, tool: 'pickaxe' },
+  // Hopper: rendered as a plain cube with a funnel texture (a real funnel model
+  // is future polish); 5 slots + direction live in the hoppers.js manager.
+  [BLOCK.HOPPER]: { name: 'Hopper', top: TILES.HOPPER_TOP, bottom: TILES.HOPPER_SIDE, side: TILES.HOPPER_SIDE, solid: true, transparent: false, hardness: 2.2, tool: 'pickaxe' },
+  // Note block: pitch 0..24 stored in per-voxel meta (cube, so meta is free).
+  [BLOCK.NOTE_BLOCK]: { name: 'Note Block', top: TILES.NOTE_BLOCK, bottom: TILES.NOTE_BLOCK, side: TILES.NOTE_BLOCK, solid: true, transparent: false, hardness: 0.8, tool: 'axe' },
+  // Comparator: plate model like the repeater; direction/mode/output level
+  // live in the redstone side-table. Right-click toggles subtract mode.
+  [BLOCK.COMPARATOR]: { name: 'Comparator', top: TILES.COMPARATOR, bottom: TILES.COMPARATOR, side: TILES.COMPARATOR, solid: false, transparent: true, hardness: 0.3, model: 'plate' },
 };
 
 // Blocks selectable in the hotbar (1..N keys), in order.

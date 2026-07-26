@@ -2040,6 +2040,154 @@ export function createAtlasTexture() {
     setpx(ox + 11, oy + 13, 168, 168, 176);
   }
 
+  // ===========================================================================
+  // Phase 6 tiles (213+): redstone completion. Appended after all earlier tiles
+  // so the shared rng stream keeps them pixel-identical.
+  // ===========================================================================
+
+  // ---- REDSTONE_TORCH_OFF (213) : same silhouette, dead dark-red head ---------
+  {
+    const { ox, oy } = toolTile(TILES.REDSTONE_TORCH_OFF);
+    for (let y = 0; y < TILE_PX; y++) for (let x = 0; x < TILE_PX; x++) {
+      const n = (rng() * 2 - 1) * 8;
+      const isStick = (x >= 7 && x <= 8 && y >= 6 && y <= 14);
+      const isHead = (x >= 6 && x <= 9 && y >= 2 && y <= 6);
+      if (isHead) setpx(ox + x, oy + y, 84 + n, 22 + n, 18 + n);       // dimmed head
+      else if (isStick) setpx(ox + x, oy + y, 130 + n, 90 + n, 45 + n);
+    }
+  }
+
+  // ---- STICKY_PISTON_FACE (214) : piston face washed with slime green ---------
+  {
+    const { ox, oy } = speckle(TILES.STICKY_PISTON_FACE, [124, 168, 96], 10);
+    for (let i = 0; i < TILE_PX; i++) {
+      setpx(ox + i, oy, 88, 128, 66);
+      setpx(ox + i, oy + TILE_PX - 1, 88, 128, 66);
+      setpx(ox, oy + i, 88, 128, 66);
+      setpx(ox + TILE_PX - 1, oy + i, 88, 128, 66);
+    }
+    setpx(ox + 2, oy + 2, 78, 112, 58); setpx(ox + 13, oy + 2, 78, 112, 58);
+    setpx(ox + 2, oy + 13, 78, 112, 58); setpx(ox + 13, oy + 13, 78, 112, 58);
+    // Slime glisten
+    setpx(ox + 5, oy + 5, 168, 214, 140);
+    setpx(ox + 10, oy + 9, 168, 214, 140);
+  }
+
+  // ---- OBSERVER_FACE (215) : stone slab with a watching eye --------------------
+  {
+    const { ox, oy } = speckle(TILES.OBSERVER_FACE, [104, 104, 110], 10);
+    // Eye socket band
+    for (let y = 5; y <= 10; y++) {
+      for (let x = 2; x <= 13; x++) setpx(ox + x, oy + y, 62, 62, 68);
+    }
+    // Eye white + red pupil
+    for (let y = 6; y <= 9; y++) {
+      for (let x = 5; x <= 10; x++) setpx(ox + x, oy + y, 196, 196, 200);
+    }
+    setpx(ox + 7, oy + 7, 200, 40, 30); setpx(ox + 8, oy + 7, 200, 40, 30);
+    setpx(ox + 7, oy + 8, 160, 28, 22); setpx(ox + 8, oy + 8, 160, 28, 22);
+  }
+
+  // ---- OBSERVER_SIDE (216) : stone with a direction groove ---------------------
+  {
+    const { ox, oy } = speckle(TILES.OBSERVER_SIDE, [112, 112, 118], 10);
+    for (let x = 2; x <= 13; x++) {
+      setpx(ox + x, oy + 7, 76, 76, 82);
+      setpx(ox + x, oy + 8, 76, 76, 82);
+    }
+    // Arrow head hinting at the face end
+    setpx(ox + 3, oy + 5, 70, 70, 76); setpx(ox + 3, oy + 10, 70, 70, 76);
+    setpx(ox + 2, oy + 6, 70, 70, 76); setpx(ox + 2, oy + 9, 70, 70, 76);
+  }
+
+  // ---- OBSERVER_BACK (217) : stone with the redstone output dot ----------------
+  {
+    const { ox, oy } = speckle(TILES.OBSERVER_BACK, [112, 112, 118], 10);
+    for (let y = 6; y <= 9; y++) {
+      for (let x = 6; x <= 9; x++) setpx(ox + x, oy + y, 58, 58, 64);
+    }
+    setpx(ox + 7, oy + 7, 190, 40, 30); setpx(ox + 8, oy + 7, 190, 40, 30);
+    setpx(ox + 7, oy + 8, 190, 40, 30); setpx(ox + 8, oy + 8, 190, 40, 30);
+  }
+
+  // ---- DISPENSER_FRONT (218) : cobble face with a dark round mouth -------------
+  {
+    const { ox, oy } = speckle(TILES.DISPENSER_FRONT, [118, 118, 122], 16);
+    for (let y = 4; y <= 11; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const dx = x - 7.5, dy = y - 7.5;
+        if (dx * dx + dy * dy <= 14) setpx(ox + x, oy + y, 40, 40, 44);
+      }
+    }
+    // Rim highlight
+    setpx(ox + 5, oy + 5, 150, 150, 156); setpx(ox + 10, oy + 10, 78, 78, 84);
+  }
+
+  // ---- DROPPER_FRONT (219) : cobble face with a triangular chute ---------------
+  {
+    const { ox, oy } = speckle(TILES.DROPPER_FRONT, [118, 118, 122], 16);
+    for (let y = 5; y <= 11; y++) {
+      const w = Math.floor((y - 4) / 1.4);
+      for (let x = 8 - w; x <= 7 + w; x++) setpx(ox + x, oy + y, 40, 40, 44);
+    }
+    setpx(ox + 7, oy + 4, 78, 78, 84); setpx(ox + 8, oy + 4, 78, 78, 84);
+  }
+
+  // ---- HOPPER_SIDE (220) : dark iron body with a funnel V -----------------------
+  {
+    const { ox, oy } = speckle(TILES.HOPPER_SIDE, [64, 64, 70], 8);
+    // Wide bowl narrowing to a spout
+    for (let y = 2; y <= 13; y++) {
+      const inset = y <= 6 ? 1 : Math.min(6, y - 5);
+      for (let x = inset; x <= 15 - inset; x++) {
+        const n = (rng() * 2 - 1) * 6;
+        const edge = x === inset || x === 15 - inset;
+        setpx(ox + x, oy + y, (edge ? 44 : 88) + n, (edge ? 44 : 88) + n, (edge ? 50 : 96) + n);
+      }
+    }
+    for (let x = 1; x <= 14; x++) setpx(ox + x, oy + 2, 118, 118, 126); // rim
+  }
+
+  // ---- HOPPER_TOP (221) : rim around a dark open bowl ---------------------------
+  {
+    const { ox, oy } = speckle(TILES.HOPPER_TOP, [96, 96, 104], 8);
+    for (let y = 3; y <= 12; y++) {
+      for (let x = 3; x <= 12; x++) {
+        const n = (rng() * 2 - 1) * 5;
+        setpx(ox + x, oy + y, 30 + n, 30 + n, 36 + n);
+      }
+    }
+  }
+
+  // ---- NOTE_BLOCK (222) : dark plank cube with a music note ---------------------
+  {
+    const { ox, oy } = speckle(TILES.NOTE_BLOCK, [108, 78, 52], 10);
+    for (let i = 0; i < TILE_PX; i++) {
+      setpx(ox + i, oy, 78, 54, 34);
+      setpx(ox + i, oy + TILE_PX - 1, 78, 54, 34);
+      setpx(ox, oy + i, 78, 54, 34);
+      setpx(ox + TILE_PX - 1, oy + i, 78, 54, 34);
+    }
+    // Quarter note: stem + head
+    for (let y = 4; y <= 10; y++) setpx(ox + 9, oy + y, 34, 26, 20);
+    setpx(ox + 7, oy + 10, 34, 26, 20); setpx(ox + 8, oy + 10, 34, 26, 20);
+    setpx(ox + 7, oy + 11, 34, 26, 20); setpx(ox + 8, oy + 11, 34, 26, 20);
+    setpx(ox + 10, oy + 4, 34, 26, 20); setpx(ox + 11, oy + 5, 34, 26, 20);
+  }
+
+  // ---- COMPARATOR (223) : stone slab, three torch dots in a T ---------------------
+  {
+    const { ox, oy } = speckle(TILES.COMPARATOR, [148, 148, 152], 8);
+    const dot = (cx, cy, lit) => {
+      setpx(ox + cx, oy + cy, lit ? 255 : 120, lit ? 70 : 30, lit ? 50 : 24);
+      setpx(ox + cx + 1, oy + cy, lit ? 235 : 104, lit ? 58 : 24, lit ? 42 : 20);
+      setpx(ox + cx, oy + cy + 1, lit ? 235 : 104, lit ? 58 : 24, lit ? 42 : 20);
+    };
+    dot(4, 3, false);   // two front torches
+    dot(10, 3, false);
+    dot(7, 10, true);   // rear mode torch
+  }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

@@ -491,6 +491,18 @@ export class Feedback {
     );
   }
 
+  // Note block tone: pitch 0..24 maps to F#3-ish .. two octaves up, the
+  // vanilla range. F = 185 * 2^(pitch/12).
+  playNote(pitch) {
+    this.ensureAudio();
+    if (!this.audio) return;
+    const volume = Math.max(0, Math.min(1, this.volume));
+    if (volume <= 0) return;
+    const f = 185 * Math.pow(2, (pitch || 0) / 12);
+    this._tone('triangle', f, f * 1.001, 0.05, 0.06 * volume, 0.45);
+    this._tone('sine', f * 2, f * 2 * 1.001, 0.05, 0.02 * volume, 0.25); // soft octave shimmer
+  }
+
   _tone(wave, f1, f2, sweep, vol, decay) {
     if (!this.audio) return;
     const now = this.audio.currentTime;
