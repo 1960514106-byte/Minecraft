@@ -7,7 +7,7 @@
 // obsidian collapses the connected portal blocks.
 // =============================================================================
 
-import { BLOCK } from './config.js';
+import { BLOCK, CHUNK_HEIGHT } from './config.js';
 
 const MIN_W = 2, MAX_W = 4;
 const MIN_H = 3, MAX_H = 5;
@@ -136,7 +136,7 @@ export function findPortalNear(world, x, y, z, radius = 12) {
         for (let dz = -r; dz <= r; dz += 2) {
           if (Math.max(Math.abs(dx), Math.abs(dz)) < r - 1) continue;
           const cy = y + dy;
-          if (cy < 1 || cy > 62) continue;
+          if (cy < 1 || cy > CHUNK_HEIGHT - 2) continue;
           if (world.getBlock(x + dx, cy, z + dz) === BLOCK.NETHER_PORTAL) {
             return { x: x + dx + 0.5, y: cy + 0.1, z: z + dz + 0.5 };
           }

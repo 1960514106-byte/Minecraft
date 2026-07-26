@@ -17,7 +17,7 @@
 
 import { CHUNK_SIZE, CHUNK_HEIGHT, isTransparent, lightLevel } from './config.js';
 
-const W = CHUNK_SIZE * 3;              // local working volume: 48 x 64 x 48
+const W = CHUNK_SIZE * 3;              // local working volume: 48 x CHUNK_HEIGHT x 48
 const H = CHUNK_HEIGHT;
 const VOL = W * W * H;
 const VOLUME = CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;

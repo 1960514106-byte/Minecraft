@@ -61,6 +61,9 @@ const COLORS = {
   [BLOCK.SPRUCE_FENCE]: 0x7a5634,
   [BLOCK.SPRUCE_LEAVES]: 0x28543c,
   [BLOCK.SUGAR_CANE]: 0x8cbe60,
+  // Phase 5: worldgen 2.0 ores.
+  [BLOCK.EMERALD_ORE]: 0x46be6e,
+  [BLOCK.LAPIS_ORE]: 0x3755be,
 };
 // Wool particle colours come straight from the registry palette (dye colour).
 for (const woolId of WOOL_BLOCKS) {

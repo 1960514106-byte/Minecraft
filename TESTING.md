@@ -427,3 +427,51 @@ Debug / automation:
 - [ ] `node test/smoke.mjs` green; `?debug=1` exposes `__game.effects`,
       `brewing`, `xp`, `anvilResult`, `anvilSlots`/`anvilTake`, `setBlocking`,
       `drinkSelected`, `throwSelectedSplash`, `openBrewScreen`, `openAnvil`.
+
+## Phase 5 — Worldgen 2.0 (SAVE_VERSION 14)
+
+Automated: `node test/smoke.mjs` now locks GEN_V1 to a 100-sample height
+fixture (`test/fixtures-genv1.json`, computed from the pre-Phase-5 code),
+sanity-checks GEN_V2 (oceans below sea level, mountains above y 40, cliff-free
+transect), round-trips meshcore on synthetic snapshots (single cube = 6 faces,
+4×4 source-water slab = 1 merged top quad) and covers the v13→v14 migration.
+
+World height 128:
+- [ ] Fresh world generates; clouds sit above the terrain (y 160), the frustum
+      cull never clips tall chunks while looking up/down.
+- [ ] Mountains rise past y 95 with snow-capped stone above y 80; building at
+      y > 64 works, saves and reloads.
+- [ ] The nether is unchanged: bedrock roof still at y 63, everything above is
+      air; portals travel both ways and fortress platforms are intact.
+
+GEN_V2 terrain (new worlds only):
+- [ ] Oceans: large water bodies at sea level 20 with sand/gravel/clay floors
+      around y 8–14; Biome HUD reads "Ocean"; beaches ring the shores.
+- [ ] Coast → plains → hills → mountains blend smoothly (no walls of stone at
+      region borders); rivers only cut through low terrain, never mountains.
+- [ ] New biomes appear: Birch Forest (birch trees), Taiga (spruces, wolves
+      spawn, rain), Swamp (oaks, clay-heavy pools, slimes at night), Mountains
+      (stone surface, snow weather).
+- [ ] Cave mouths open on hillsides; thin noodle caves wind underground; an
+      occasional ravine slices 15–25 blocks down. Nothing carves below y 5.
+- [ ] Emerald ore only in mountains (y 20–60, rare); lapis ore below y 25
+      drops 4–8 lapis; both need a stone pickaxe (tier 2).
+- [ ] findSpawn never drops you in an ocean or river.
+
+Old-save compatibility (GEN_V1):
+- [ ] A v13 (or older) save loads, stamps `genVersion: 1`, and the terrain is
+      EXACTLY as before — all builds/edits still line up; only empty sky was
+      added above.
+- [ ] Saving from that world keeps `genVersion: 1` forever (reload twice).
+
+Worker mesh pipeline:
+- [ ] `?debug=1` → `__game.meshPipeline === 'worker'` (default on). Chunks
+      stream in around the player while flying fast; no holes persist.
+- [ ] Placing/breaking blocks updates the mesh instantly (edits remesh
+      synchronously); torch light still floods correctly across chunk borders.
+- [ ] `?workers=0` forces `meshPipeline === 'sync'` and the game still works
+      (automatic fallback also covers file:// and worker startup failure).
+- [ ] Ocean surfaces render as large merged quads (water top faces greedy-merge
+      for sources; flowing water still renders sloped per-cell tops).
+- [ ] Phase 6/7 contraptions (redstone, brewing) still pass their browser
+      checks at height 128.

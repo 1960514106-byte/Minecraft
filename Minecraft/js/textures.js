@@ -2351,6 +2351,40 @@ export function createAtlasTexture() {
     for (let y = 5; y <= 7; y++) for (let x = 7; x <= 9; x++) setpx(ox + x, oy + y, 200, 202, 210);
   }
 
+  // ---- Phase 5: EMERALD_ORE / LAPIS_ORE (247, 248) : stone with flecks ----------
+  oreTexture(TILES.EMERALD_ORE, [64, 214, 110]);
+  oreTexture(TILES.LAPIS_ORE, [48, 78, 204]);
+
+  // ---- EMERALD item (249) : faceted green gem ------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.EMERALD);
+    for (let y = 3; y <= 12; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const d = Math.abs(x - 7.5) * 1.4 + Math.abs(y - 7.5);
+        if (d < 6.2) {
+          const n = (rng() * 2 - 1) * 16;
+          const hi = (x + y) % 4 === 0 ? 36 : 0; // facet sparkle lines
+          setpx(ox + x, oy + y, 44 + n + hi, 196 + n + hi, 106 + n + hi);
+        }
+      }
+    }
+  }
+
+  // ---- LAPIS item (250) : jagged blue chunk ---------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.LAPIS);
+    for (let y = 3; y <= 12; y++) {
+      for (let x = 3; x <= 12; x++) {
+        const jag = Math.abs(x - 8) + Math.abs(y - 8) + rng() * 3;
+        if (jag < 8) {
+          const n = (rng() * 2 - 1) * 14;
+          const speck = rng() > 0.85 ? 46 : 0; // pale calcite specks
+          setpx(ox + x, oy + y, 40 + n + speck, 66 + n + speck, 190 + n + speck);
+        }
+      }
+    }
+  }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

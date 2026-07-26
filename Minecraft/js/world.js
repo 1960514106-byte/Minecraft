@@ -1,16 +1,28 @@
 // =============================================================================
 // world.js - Owns all chunks, generates terrain + trees, streams chunk meshes
 // around the player, edits blocks, and casts rays for block selection.
+//
+// Phase 5: terrain math lives in terrain.js (TerrainGen, three-free) behind a
+// per-world `genVersion`:
+//   1 = pre-Phase-5 generator, preserved bit-identically for old saves;
+//   2 = continentalness worldgen (oceans/beaches/mountains, new biomes,
+//       cave entrances, noodle caves, ravines) for new worlds.
+// Meshing + lighting run in a small Web Worker pool by default (snapshot in,
+// transferable geometry out — see meshcore.js/meshworker.js), with the
+// synchronous path kept both as an automatic fallback (worker creation
+// failure, file:// protocol, ?workers=0) and for edit remeshes, which stay
+// synchronous so block placement feedback is immediate.
 // =============================================================================
 
 import * as THREE from 'three';
 import { Chunk } from './chunk.js';
-import { Noise } from './noise.js';
 import { computeChunkLight, chunksAffectedByEdit } from './lighting.js';
 import { decorateStructures } from './structures.js';
+import { TerrainGen } from './terrain.js';
+import { SNAP_VOL, SNAP_W } from './meshcore.js';
 import {
   CHUNK_SIZE, CHUNK_HEIGHT, RENDER_DISTANCE, WORLD_SEED,
-  BASE_HEIGHT, HEIGHT_AMP, DIRT_DEPTH, SEA_LEVEL, SAND_LEVEL,
+  DIRT_DEPTH, SEA_LEVEL, SAND_LEVEL,
   BIOME, BIOMES, BLOCK, DIMENSIONS, isSolid, isTransparent, lightLevel,
   encodeEdit, decodeEditId, decodeEditMeta,
 } from './config.js';
@@ -20,16 +32,83 @@ const keyOf = (cx, cz) => cx + ',' + cz;
 const floorDiv = (a, b) => Math.floor(a / b);
 const posMod = (a, b) => ((a % b) + b) % b;
 
+const localIndex = (x, y, z) => x + CHUNK_SIZE * (z + CHUNK_SIZE * y);
+const snapIndex = (x, y, z) => x + SNAP_W * (z + SNAP_W * y);
+
+// Scratch snapshot buffers for SYNCHRONOUS mesh builds (single-threaded main
+// loop; worker jobs get fresh arrays because their buffers are transferred).
+const scratchBlocks = new Uint16Array(SNAP_VOL);
+const scratchMeta = new Uint8Array(SNAP_VOL);
+const scratchSky = new Uint8Array(SNAP_VOL);
+const scratchBlk = new Uint8Array(SNAP_VOL);
+
+// ---- Shared mesh-worker pool ---------------------------------------------------
+// One pool for every World instance (overworld + nether share it; jobs carry
+// the skyless flag). Created lazily on the first World; falls back to null on
+// any failure, which sends every world down the synchronous path.
+const meshPool = {
+  workers: null,     // Worker[] | null (null = sync fallback)
+  jobs: new Map(),   // jobId -> { world, key, revs }
+  nextJobId: 1,
+  tried: false,
+};
+
+function meshPoolDisable(err) {
+  if (meshPool.workers) {
+    for (const w of meshPool.workers) { try { w.terminate(); } catch (e) { /* ignore */ } }
+  }
+  meshPool.workers = null;
+  for (const [, job] of meshPool.jobs) {
+    const entry = job.world.chunks.get(job.key);
+    if (entry) entry.chunk.meshJobId = null;
+  }
+  meshPool.jobs.clear();
+  console.warn('[world] mesh workers unavailable; using synchronous meshing.',
+    err && (err.message || err));
+}
+
+function meshPoolInit() {
+  if (meshPool.tried) return;
+  meshPool.tried = true;
+  try {
+    if (typeof Worker === 'undefined' || typeof location === 'undefined') return;
+    if (location.protocol === 'file:') return;
+    if (new URLSearchParams(location.search).get('workers') === '0') return;
+    const workers = [];
+    for (let i = 0; i < 2; i++) {
+      const w = new Worker(new URL('./meshworker.js', import.meta.url), { type: 'module' });
+      w.onmessage = (e) => meshPoolResult(e.data);
+      w.onerror = (e) => meshPoolDisable(e);
+      workers.push(w);
+    }
+    meshPool.workers = workers;
+  } catch (e) {
+    meshPool.workers = null;
+    console.warn('[world] mesh worker creation failed; using synchronous meshing.', e);
+  }
+}
+
+function meshPoolResult(data) {
+  if (data.ready) return; // worker module loaded fine
+  const job = meshPool.jobs.get(data.jobId);
+  if (!job) return;
+  meshPool.jobs.delete(data.jobId);
+  job.world._installWorkerMesh(job, data);
+}
+
 export class World {
-  constructor(scene, atlasTexture) {
+  constructor(scene, atlasTexture, genVersion = 2) {
     this.scene = scene;
     this.atlas = atlasTexture;
-    this.noise = new Noise(WORLD_SEED);
-    // Separate low-frequency fields for biome temperature & moisture. Distinct
-    // seeds keep them independent of the terrain-height noise and each other.
-    this.tempNoise = new Noise(WORLD_SEED + 101);
-    this.moistNoise = new Noise(WORLD_SEED + 211);
-    this.riverNoise = new Noise(WORLD_SEED + 301);
+    // Terrain profile (1 = legacy, 2 = continentalness). All terrain fields
+    // live in TerrainGen; the noise instances are shared so subclasses (the
+    // nether) keep using this.noise exactly as before.
+    this.genVersion = genVersion;
+    this.terrain = new TerrainGen(WORLD_SEED, genVersion);
+    this.noise = this.terrain.noise;
+    this.tempNoise = this.terrain.tempNoise;
+    this.moistNoise = this.terrain.moistNoise;
+    this.riverNoise = this.terrain.riverNoise;
     this.chunks = new Map(); // key -> { chunk, mesh|null }
 
     // Player edits as diffs against procedural generation, grouped by chunk:
@@ -63,6 +142,18 @@ export class World {
     // whenever a cell's id or meta actually changes. main.js points it at the
     // dimension's redstone engine so observers can watch cells cheaply.
     this.onCellChanged = null;
+
+    meshPoolInit();
+  }
+
+  // 'worker' when streaming meshes are built in the worker pool, else 'sync'.
+  get meshPipeline() { return meshPool.workers ? 'worker' : 'sync'; }
+
+  // Switch terrain profile (main.js calls this with the save's genVersion
+  // BEFORE any chunk generates). Old saves get 1; new worlds keep 2.
+  setGenVersion(v) {
+    this.genVersion = v;
+    this.terrain.genVersion = v;
   }
 
   // Compat: dimensions without sky (nether/end) have no sunlight; lighting.js
@@ -71,29 +162,14 @@ export class World {
   get skyless() { return !this.dim.hasSky; }
 
   // ---- Biomes -------------------------------------------------------------
-  // Classify a column from low-frequency temperature/moisture noise. The very
-  // low frequency makes biomes large, smooth regions.
+  // Classify a column. Delegates to the terrain profile: V1 keeps the original
+  // temperature/moisture cascade; V2 layers continentalness on top of it.
   biomeAt(worldX, worldZ) {
-    const t = this.tempNoise.fbm2D(worldX, worldZ, { frequency: 0.0035, octaves: 2 });
-    const m = this.moistNoise.fbm2D(worldX, worldZ, { frequency: 0.0040, octaves: 2 });
-    if (t > 0.33) return BIOME.DESERT;
-    if (t < -0.33) return BIOME.SNOW;
-    if (t > 0.05 && m > 0.25) return BIOME.JUNGLE;
-    if (m < -0.3 && t < 0.05 && t > -0.2) return BIOME.MUSHROOM;
-    if (m > 0.1) {
-      const detail = this.moistNoise.fbm2D(worldX + 1000, worldZ + 1000, { frequency: 0.008, octaves: 1 });
-      if (detail > 0.15) return BIOME.FLOWER_FOREST;
-      return BIOME.FOREST;
-    }
-    return BIOME.PLAINS;
+    return this.terrain.biomeAt(worldX, worldZ);
   }
 
   riverAt(worldX, worldZ) {
-    const biome = this.biomeAt(worldX, worldZ);
-    if (biome === BIOME.DESERT) return false;
-    const v = this.riverNoise.fbm2D(worldX, worldZ, { frequency: 0.006, octaves: 3 });
-    const width = 0.028 + this.riverNoise.fbm2D(worldX + 500, worldZ + 500, { frequency: 0.012, octaves: 2 }) * 0.015;
-    return Math.abs(v) < width;
+    return this.terrain.riverAt(worldX, worldZ);
   }
 
   // ---- Chunk access -------------------------------------------------------
@@ -111,14 +187,16 @@ export class World {
 
   // ---- Terrain generation -------------------------------------------------
   columnHeight(worldX, worldZ) {
-    const n = this.noise.fbm2D(worldX, worldZ, { frequency: 0.012, octaves: 4 });
-    let h = Math.floor(BASE_HEIGHT + HEIGHT_AMP * n);
-    if (h < 1) h = 1;
-    if (h > CHUNK_HEIGHT - 1) h = CHUNK_HEIGHT - 1;
-    return h;
+    return this.terrain.columnHeight(worldX, worldZ);
   }
 
   generateChunk(chunk) {
+    if (this.genVersion >= 2) return this.generateChunkV2(chunk);
+    return this.generateChunkV1(chunk);
+  }
+
+  // GEN_V1 — the pre-Phase-5 generator, preserved exactly (old saves).
+  generateChunkV1(chunk) {
     const ox = chunk.cx * CHUNK_SIZE;
     const oz = chunk.cz * CHUNK_SIZE;
 
@@ -227,6 +305,131 @@ export class World {
     this.applyEdits(chunk);
   }
 
+  // GEN_V2 — continentalness worldgen for new worlds: oceans, beaches,
+  // mountains with snow caps, new biomes, cave entrances, noodle caves and
+  // ravines. Structure/decoration passes are shared with V1.
+  generateChunkV2(chunk) {
+    const ox = chunk.cx * CHUNK_SIZE;
+    const oz = chunk.cz * CHUNK_SIZE;
+    const T = this.terrain;
+
+    for (let x = 0; x < CHUNK_SIZE; x++) {
+      for (let z = 0; z < CHUNK_SIZE; z++) {
+        const wx = ox + x, wz = oz + z;
+        let h = T.columnHeightV2(wx, wz);
+        const biome = T.biomeAtV2(wx, wz);
+        const def = BIOMES[biome];
+        const c = T.contC(wx, wz);
+        const isRiver = h > SEA_LEVEL && T.riverAtV2(wx, wz);
+        if (isRiver) h = Math.min(h, SEA_LEVEL - 1);
+
+        // Swamp pools: occasional shallow dips flooded to sea level.
+        let isPool = false;
+        if (!isRiver && biome === BIOME.SWAMP && h >= SEA_LEVEL && h <= SEA_LEVEL + 2 &&
+            this.hash01_3(wx, 0, wz, 911) < 0.09) {
+          h = SEA_LEVEL - 1;
+          isPool = true;
+        }
+
+        const ravine = T.ravineDepthV2(wx, wz);
+        // Sand: beaches, river/pool beds, and any low coastal ground (the V1
+        // SAND_LEVEL rule extended to SEA_LEVEL+2 near coasts).
+        const sandy = isRiver || isPool || biome === BIOME.BEACH ||
+          h <= SAND_LEVEL || (h <= SEA_LEVEL + 2 && c < 0.05);
+        const snowCap = biome === BIOME.MOUNTAINS && h > 80;
+
+        for (let y = 0; y <= h; y++) {
+          let id;
+          if (y === 0) id = BLOCK.BEDROCK;
+          else if (T.carveV2(wx, y, wz, h, ravine)) continue; // caves break the surface now
+          else if (y < h - DIRT_DEPTH) id = this.oreAtV2(wx, y, wz, biome);
+          else if (y < h) id = sandy ? BLOCK.SAND : def.subsurface;
+          else id = sandy ? BLOCK.SAND : (snowCap ? BLOCK.SNOW : def.surface);
+          chunk.setBlockLocal(x, y, z, id);
+        }
+
+        // Flood up to sea level. Deliberately unconditional: caves that open
+        // below sea level under oceans simply generate water-filled
+        // (documented simplification).
+        for (let y = h + 1; y <= SEA_LEVEL; y++) {
+          chunk.setBlockLocal(x, y, z, BLOCK.WATER);
+        }
+
+        const surfaceOpen = chunk.getBlockLocal(x, h, z) === BLOCK.AIR; // carved away
+
+        // Gravel/clay patches at sea/river/pool bottoms (clay-heavier swamps).
+        if (h <= SEA_LEVEL && h > 1 && !surfaceOpen) {
+          const gHash = this.hash01_3(wx, h, wz, 777);
+          const clayBoost = (biome === BIOME.SWAMP || isPool) ? 0.25 : 0;
+          if (gHash < 0.25) chunk.setBlockLocal(x, h, z, BLOCK.GRAVEL);
+          else if (gHash < 0.35 + clayBoost) chunk.setBlockLocal(x, h, z, BLOCK.CLAY);
+        }
+
+        if (isRiver || isPool) continue;   // no decorations in water columns
+        if (surfaceOpen) continue;         // no decorations over cave mouths
+
+        // Trees: per-biome planter dispatch (planters are Phase-2 parameterised).
+        if (h > SAND_LEVEL && !sandy && def.treeChance > 0 && this.hash01(wx, wz) < def.treeChance) {
+          if (def.tallTree) {
+            this.plantJungleTree(chunk, x, z, h);
+          } else if (biome === BIOME.SNOW || biome === BIOME.TAIGA || biome === BIOME.MOUNTAINS) {
+            this.plantSpruceTree(chunk, x, z, h);
+          } else if (biome === BIOME.BIRCH_FOREST) {
+            this.plantTree(chunk, x, z, h, BLOCK.BIRCH_WOOD, BLOCK.BIRCH_LEAVES);
+          } else if (biome === BIOME.FOREST && this.hash01_3(wx, h, wz, 379) < 0.25) {
+            this.plantTree(chunk, x, z, h, BLOCK.BIRCH_WOOD, BLOCK.BIRCH_LEAVES);
+          } else {
+            this.plantTree(chunk, x, z, h); // oak (plains/forest/swamp/flower)
+          }
+        }
+
+        // Giant mushrooms in mushroom biome
+        if (h > SEA_LEVEL && def.mushroomChance && this.hash01_3(wx, h, wz, 191) < def.mushroomChance) {
+          this.plantGiantMushroom(chunk, x, z, h);
+        }
+
+        if (def.surface === BLOCK.SAND && biome === BIOME.DESERT &&
+            h > SEA_LEVEL + 1 && this.hash01_3(wx, h, wz, 131) < 0.011) {
+          this.plantCactus(chunk, x, z, h);
+        }
+
+        // Flowers and tall grass on grasslands
+        if (h > SEA_LEVEL && !sandy && (def.surface === BLOCK.GRASS || def.surface === BLOCK.SNOW)) {
+          const floral = this.hash01_3(wx, h, wz, 200);
+          const flowerBoost = def.flowerChance || 0;
+          if (floral < 0.025 && def.surface === BLOCK.GRASS) {
+            chunk.setBlockLocal(x, h + 1, z, BLOCK.TALL_GRASS);
+          } else if (floral > (0.97 - flowerBoost * 0.5)) {
+            chunk.setBlockLocal(x, h + 1, z, BLOCK.FLOWER_RED);
+          } else if (floral > (0.955 - flowerBoost * 0.5)) {
+            chunk.setBlockLocal(x, h + 1, z, BLOCK.FLOWER_YELLOW);
+          }
+        }
+
+        // Sugar cane on shorelines (same rule as V1, against V2 heights).
+        if (h === SEA_LEVEL && this.hash01_3(wx, h, wz, 353) < 0.08 &&
+            chunk.getBlockLocal(x, h, z) === BLOCK.SAND) {
+          const lower = (nx, nz) => {
+            const nh = this.columnHeight(nx, nz);
+            const nEff = (nh > SEA_LEVEL && this.riverAt(nx, nz)) ? Math.min(nh, SEA_LEVEL - 1) : nh;
+            return nEff < SEA_LEVEL;
+          };
+          if (lower(wx + 1, wz) || lower(wx - 1, wz) || lower(wx, wz + 1) || lower(wx, wz - 1)) {
+            const canes = 2 + (this.hash01_3(wx, h, wz, 359) < 0.4 ? 1 : 0);
+            for (let i = 1; i <= canes && h + i < CHUNK_HEIGHT; i++) {
+              chunk.setBlockLocal(x, h + i, z, BLOCK.SUGAR_CANE);
+            }
+          }
+        }
+      }
+    }
+
+    this.decorateChunk(chunk);
+    decorateStructures(this, chunk);
+    this.applyPending(chunk);
+    this.applyEdits(chunk);
+  }
+
   // ---- Persistent edits ---------------------------------------------------
   // Overlay any stored edits for this chunk onto its freshly generated blocks.
   applyEdits(chunk) {
@@ -292,38 +495,13 @@ export class World {
   }
 
   valueNoise3(x, y, z, frequency, salt) {
-    const sx = x * frequency;
-    const sy = y * frequency;
-    const sz = z * frequency;
-    const ix = Math.floor(sx), iy = Math.floor(sy), iz = Math.floor(sz);
-    const fx = sx - ix, fy = sy - iy, fz = sz - iz;
-    const smooth = (t) => t * t * (3 - 2 * t);
-    const lerp = (a, b, t) => a + (b - a) * t;
-    const ux = smooth(fx), uy = smooth(fy), uz = smooth(fz);
-
-    const c000 = this.hash01_3(ix, iy, iz, salt);
-    const c100 = this.hash01_3(ix + 1, iy, iz, salt);
-    const c010 = this.hash01_3(ix, iy + 1, iz, salt);
-    const c110 = this.hash01_3(ix + 1, iy + 1, iz, salt);
-    const c001 = this.hash01_3(ix, iy, iz + 1, salt);
-    const c101 = this.hash01_3(ix + 1, iy, iz + 1, salt);
-    const c011 = this.hash01_3(ix, iy + 1, iz + 1, salt);
-    const c111 = this.hash01_3(ix + 1, iy + 1, iz + 1, salt);
-
-    const x00 = lerp(c000, c100, ux);
-    const x10 = lerp(c010, c110, ux);
-    const x01 = lerp(c001, c101, ux);
-    const x11 = lerp(c011, c111, ux);
-    return lerp(lerp(x00, x10, uy), lerp(x01, x11, uy), uz);
+    return this.terrain.valueNoise3(x, y, z, frequency, salt);
   }
 
+  // GEN_V1 worm caves (kept for old saves; delegates to the terrain module,
+  // whose copy is bit-identical to the pre-Phase-5 formula).
   caveAt(worldX, y, worldZ, surfaceY) {
-    if (y < 5 || y > surfaceY - 6) return false;
-    const openBias = y < 12 ? -0.04 : 0;
-    const broad = this.valueNoise3(worldX, y * 1.35, worldZ, 0.075, 73);
-    const detail = this.valueNoise3(worldX + 1000, y * 1.8, worldZ - 1000, 0.135, 97);
-    const cavern = this.valueNoise3(worldX - 700, y * 0.8, worldZ + 700, 0.035, 149);
-    return broad + detail * 0.42 + openBias > 0.92 || (cavern > 0.88 && detail > 0.62);
+    return this.terrain.caveAtV1(worldX, y, worldZ, surfaceY);
   }
 
   oreAt(worldX, y, worldZ) {
@@ -352,6 +530,23 @@ export class World {
     }
     if (this.hash01_3(gx, gy, gz, 99) < 0.04) return BLOCK.GRAVEL;
     return BLOCK.STONE;
+  }
+
+  // V2 ores: the V1 depth bands stay valid (they're depth-based), plus lapis
+  // (deep, everywhere) and emerald (mountains only) as small veins on the same
+  // 2x2x2 cell grid.
+  oreAtV2(worldX, y, worldZ, biome) {
+    if (y <= 1) return BLOCK.STONE;
+    const gx = Math.floor(worldX / 2);
+    const gy = Math.floor(y / 2);
+    const gz = Math.floor(worldZ / 2);
+    if (biome === BIOME.MOUNTAINS && y >= 20 && y <= 60) {
+      if (this.hash01_3(gx, gy, gz, 181) < 0.0004) return BLOCK.EMERALD_ORE;
+    }
+    if (y <= 24) {
+      if (this.hash01_3(gx, gy, gz, 59) < 0.001) return BLOCK.LAPIS_ORE;
+    }
+    return this.oreAt(worldX, y, worldZ);
   }
 
   // Trunk + canopy. Works in WORLD coordinates and routes every block through
@@ -482,7 +677,7 @@ export class World {
     const h = this.columnHeight(wx, wz);
     if (h <= SEA_LEVEL + 1 || h + 4 >= CHUNK_HEIGHT) return;
     const biome = this.biomeAt(wx, wz);
-    if (biome === BIOME.DESERT) return;
+    if (biome === BIOME.DESERT || biome === BIOME.OCEAN || biome === BIOME.MOUNTAINS) return;
     // Proper multi-building villages come from structures.js; lone surface
     // ruins remain as small landmarks.
     this.placeRuin(chunk, wx, h + 1, wz);
@@ -549,6 +744,7 @@ export class World {
       if (airOnly && entry.chunk.getBlockLocal(lx, wy, lz) !== BLOCK.AIR) return;
       entry.chunk.setBlockLocal(lx, wy, lz, id);
       entry.chunk.lightDirty = true;
+      entry.chunk.rev++; // stale any in-flight mesh snapshot of this chunk
       if (entry.mesh) this.treeDirty.add(keyOf(cx, cz)); // already on screen -> remesh
     }
   }
@@ -618,6 +814,7 @@ export class World {
     const oldMeta = chunk.getMetaLocal(lx, y, lz);
     chunk.setBlockLocal(lx, y, lz, id);
     chunk.setMetaLocal(lx, y, lz, meta);
+    chunk.rev++; // stale any in-flight worker snapshot containing this chunk
     this.recordEdit(cx, cz, lx, y, lz, id, meta); // remember the change for save/reload
 
     // Lightweight cell-change notification (observers, main.js wires it to
@@ -658,6 +855,7 @@ export class World {
       const oldMeta = chunk.getMetaLocal(lx, e.y, lz);
       chunk.setBlockLocal(lx, e.y, lz, e.id);
       chunk.setMetaLocal(lx, e.y, lz, e.meta || 0);
+      chunk.rev++;
       this.recordEdit(cx, cz, lx, e.y, lz, e.id, e.meta || 0);
       if (this.onCellChanged && (old !== e.id || oldMeta !== (e.meta || 0))) {
         this.onCellChanged(e.x, e.y, e.z);
@@ -679,6 +877,8 @@ export class World {
     }
   }
 
+  // Edit remeshes stay SYNCHRONOUS: block placement/breaking must show up the
+  // same frame. Streaming meshes of fresh chunks go through the worker pool.
   rebuildMesh(cx, cz) {
     const entry = this.chunks.get(keyOf(cx, cz));
     // Only chunks that are currently on screen rebuild; data-only edits (e.g.
@@ -693,21 +893,107 @@ export class World {
     this.scene.add(mesh);
   }
 
+  // ---- Mesh snapshots (shared by sync + worker paths) -----------------------
+  // Copy the 3x3 chunk neighbourhood around (cx,cz) into flat snapshot arrays.
+  // `useScratch` reuses module scratch buffers (sync path); worker jobs get
+  // fresh arrays because their buffers are transferred to the worker.
+  // withLight assembles the cached per-chunk light fields into snapshot space
+  // (only meaningful on the sync path, after _ensureLightAround).
+  gatherMeshSnapshot(cx, cz, withLight, useScratch = withLight) {
+    const blocks = useScratch ? scratchBlocks : new Uint16Array(SNAP_VOL);
+    const meta = useScratch ? scratchMeta : new Uint8Array(SNAP_VOL);
+    const sky = withLight ? (useScratch ? scratchSky : new Uint8Array(SNAP_VOL)) : null;
+    const blk = withLight ? (useScratch ? scratchBlk : new Uint8Array(SNAP_VOL)) : null;
+    const skyDefault = this.skyless ? 4 : 15; // matches lightAtWorld's fallback
+    const revs = [];
+    for (let dcz = -1; dcz <= 1; dcz++) {
+      for (let dcx = -1; dcx <= 1; dcx++) {
+        const chunk = this.getOrCreateChunk(cx + dcx, cz + dcz);
+        revs.push(chunk.rev);
+        const ox = (dcx + 1) * CHUNK_SIZE;
+        const oz = (dcz + 1) * CHUNK_SIZE;
+        const hasLight = withLight && chunk.lightSky;
+        for (let y = 0; y < CHUNK_HEIGHT; y++) {
+          for (let z = 0; z < CHUNK_SIZE; z++) {
+            const src = localIndex(0, y, z);
+            const dst = snapIndex(ox, y, oz + z);
+            blocks.set(chunk.data.subarray(src, src + CHUNK_SIZE), dst);
+            meta.set(chunk.meta.subarray(src, src + CHUNK_SIZE), dst);
+            if (withLight) {
+              if (hasLight) {
+                sky.set(chunk.lightSky.subarray(src, src + CHUNK_SIZE), dst);
+                blk.set(chunk.lightBlock.subarray(src, src + CHUNK_SIZE), dst);
+              } else {
+                sky.fill(skyDefault, dst, dst + CHUNK_SIZE);
+                blk.fill(0, dst, dst + CHUNK_SIZE);
+              }
+            }
+          }
+        }
+      }
+    }
+    return { blocks, meta, sky, blk, revs };
+  }
+
+  // Drop every in-flight worker job for THIS world. Called on dimension
+  // travel: the old dimension's meshes are hidden, and a late worker response
+  // must not re-add geometry of the inactive dimension to the scene.
+  cancelMeshJobs() {
+    for (const [id, job] of meshPool.jobs) {
+      if (job.world !== this) continue;
+      meshPool.jobs.delete(id);
+      const entry = this.chunks.get(job.key);
+      if (entry) entry.chunk.meshJobId = null;
+    }
+  }
+
+  // Dispatch a worker mesh job for a chunk (data for the 3x3 neighbourhood is
+  // generated on the main thread as part of the snapshot).
+  _dispatchMeshJob(chunk) {
+    const snap = this.gatherMeshSnapshot(chunk.cx, chunk.cz, false, false);
+    const jobId = meshPool.nextJobId++;
+    chunk.meshJobId = jobId;
+    meshPool.jobs.set(jobId, { world: this, key: keyOf(chunk.cx, chunk.cz), revs: snap.revs });
+    const worker = meshPool.workers[jobId % meshPool.workers.length];
+    worker.postMessage(
+      { jobId, blocks: snap.blocks, meta: snap.meta, skyless: this.skyless },
+      [snap.blocks.buffer, snap.meta.buffer],
+    );
+  }
+
+  // Worker response: install light + geometry unless the chunk vanished or any
+  // chunk in the snapshot changed since (stale job -> update() re-queues).
+  _installWorkerMesh(job, data) {
+    const entry = this.chunks.get(job.key);
+    if (!entry) return;
+    const chunk = entry.chunk;
+    if (chunk.meshJobId === data.jobId) chunk.meshJobId = null;
+    if (entry.mesh) return; // already meshed through another path
+    const [cx, cz] = job.key.split(',').map(Number);
+    let i = 0;
+    for (let dcz = -1; dcz <= 1; dcz++) {
+      for (let dcx = -1; dcx <= 1; dcx++) {
+        const e2 = this.chunks.get(keyOf(cx + dcx, cz + dcz));
+        if (!e2 || e2.chunk.rev !== job.revs[i++]) return; // stale snapshot
+      }
+    }
+    // The worker computed light for the whole snapshot; adopt the centre.
+    chunk.lightSky = data.lightSky;
+    chunk.lightBlock = data.lightBlock;
+    chunk.lightDirty = false;
+    entry.mesh = chunk.buildMeshFromArrays(data.arrays, this.atlas);
+    this.scene.add(entry.mesh);
+  }
+
   // ---- Chunk streaming around the player ----------------------------------
   update(playerPos) {
     const pcx = floorDiv(Math.floor(playerPos.x), CHUNK_SIZE);
     const pcz = floorDiv(Math.floor(playerPos.z), CHUNK_SIZE);
 
-    // Cap mesh builds per frame so a big jump in position never stalls.
-    let builds = 0;
-    const MAX_BUILDS = 4;
-
     // Collect every chunk in range, then build NEAREST-first so the ground the
-    // player is standing on / looking at appears before far corners. (The old
-    // corner-to-corner sweep built the far back-left chunk first, so a respawn
-    // or big jump showed distant terrain popping in while nearby was still a
-    // hole.) Chunk DATA is still generated for the whole ring each frame; only
-    // the expensive MESH build is distance-prioritised and capped.
+    // player is standing on / looking at appears before far corners. Chunk
+    // DATA is still generated for the whole ring each frame; only the
+    // expensive MESH work is distance-prioritised and capped.
     const pending = [];
     for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
       for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
@@ -719,12 +1005,28 @@ export class World {
       }
     }
     pending.sort((a, b) => a.d2 - b.d2);
-    for (const { entry } of pending) {
-      if (builds >= MAX_BUILDS) break;
-      this._ensureLightAround(entry.chunk.cx, entry.chunk.cz);
-      entry.mesh = entry.chunk.buildMesh(this, this.atlas);
-      this.scene.add(entry.mesh);
-      builds++;
+
+    if (meshPool.workers) {
+      // Worker pipeline: snapshot on the main thread (cheap copy), light+mesh
+      // in the pool, upload on response. Nearest-first, capped in-flight.
+      const MAX_INFLIGHT = 4;
+      for (const { entry } of pending) {
+        if (meshPool.jobs.size >= MAX_INFLIGHT) break;
+        if (entry.chunk.meshJobId != null) continue; // already in flight
+        this._dispatchMeshJob(entry.chunk);
+      }
+    } else {
+      // Synchronous fallback: cap mesh builds per frame so a big jump in
+      // position never stalls.
+      let builds = 0;
+      const MAX_BUILDS = 4;
+      for (const { entry } of pending) {
+        if (builds >= MAX_BUILDS) break;
+        this._ensureLightAround(entry.chunk.cx, entry.chunk.cz);
+        entry.mesh = entry.chunk.buildMesh(this, this.atlas);
+        this.scene.add(entry.mesh);
+        builds++;
+      }
     }
 
     // Lazily rebuild already-meshed chunks whose light field went stale after
@@ -740,7 +1042,8 @@ export class World {
       lightRebuilds++;
     }
 
-    // Unload chunks well outside the view radius.
+    // Unload chunks well outside the view radius. In-flight worker jobs for
+    // unloaded chunks are dropped when their response arrives (no entry).
     const limit = RENDER_DISTANCE + 1;
     for (const [k, entry] of this.chunks) {
       const [cx, cz] = k.split(',').map(Number);
@@ -782,8 +1085,9 @@ export class World {
   }
 
   // Find a dry column to spawn on: scan outward in rings from (cx,cz) for the
-  // nearest column whose surface sits above sea level, so the player doesn't
-  // start submerged. Falls back to the centre column if everything is ocean.
+  // nearest column whose surface sits above sea level (GEN_V2: also outside
+  // rivers), so the player doesn't start submerged. Falls back to the centre
+  // column if everything is ocean.
   findSpawn(cx = 0, cz = 0, radius = 48) {
     for (let r = 0; r <= radius; r++) {
       for (let dz = -r; dz <= r; dz++) {
@@ -791,7 +1095,7 @@ export class World {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue; // ring edge only
           const x = cx + dx, z = cz + dz;
           const h = this.columnHeight(x, z);
-          if (h > SEA_LEVEL) return { x, z, h };
+          if (h > SEA_LEVEL && !(this.genVersion >= 2 && this.riverAt(x, z))) return { x, z, h };
         }
       }
     }

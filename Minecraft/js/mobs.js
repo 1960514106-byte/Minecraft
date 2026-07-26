@@ -7,7 +7,7 @@
 // =============================================================================
 
 import * as THREE from 'three';
-import { BLOCK, ITEM, SEA_LEVEL, BIOME, isSolid } from './config.js';
+import { BLOCK, ITEM, SEA_LEVEL, BIOME, NETHER_HEIGHT, isSolid } from './config.js';
 import {
   MOB_DEFS, AI_NAMES, mobDef, spawnCandidates, weightedPick, rollMobDrops,
   xpForMob, breedFoodOf,
@@ -707,7 +707,8 @@ export class MobManager {
     // In roofed worlds (the nether) a top-down scan would put mobs on the
     // ceiling: search downward from the mob's current height instead.
     if (this.world.skyless && fromY != null) {
-      let y = Math.min(62, Math.floor(fromY) + 2);
+      // Roofed worlds are NETHER_HEIGHT tall; never start the scan on the roof.
+      let y = Math.min(NETHER_HEIGHT - 2, Math.floor(fromY) + 2);
       while (y > 1 && !isSolid(this.world.getBlock(bx, y, bz))) y--;
       return y;
     }

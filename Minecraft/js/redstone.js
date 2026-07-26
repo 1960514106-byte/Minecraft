@@ -29,7 +29,7 @@
 // when a power change reaches them.
 // =============================================================================
 
-import { BLOCK, CHUNK_SIZE, isSolid, blockModel, decodeEditId } from './config.js';
+import { BLOCK, CHUNK_SIZE, CHUNK_HEIGHT, isSolid, blockModel, decodeEditId } from './config.js';
 
 const MAX_POWER = 15;
 const TICK = 0.1;
@@ -296,7 +296,7 @@ export class Redstone {
     }
     const endBlock = this.world.getBlock(cx, cy, cz);
     if (endBlock !== BLOCK.AIR && endBlock !== BLOCK.WATER) return; // no room
-    if (cy < 1 || cy >= 63) return;
+    if (cy < 1 || cy >= CHUNK_HEIGHT - 1) return;
     // Move the chain one step, tail first (meta rides along).
     for (let i = chain.length - 1; i >= 0; i--) {
       const c = chain[i];

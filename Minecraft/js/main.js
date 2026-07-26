@@ -40,7 +40,7 @@ import { getMode, setMode, isCreative, setOnModeChange } from './gamemode.js';
 import {
   biomeDef, itemDef, isBlockItem, foodValue, blockDrop, attackDamage,
   breakDuration, itemStackMax, armorPoints, armorSlotOf, fuelValue, smeltResult, SMELT_TIME,
-  BLOCK, ITEM, BLOCKS, ITEMS, WORLD_SEED, ATLAS_COLS, ATLAS_ROWS,
+  BLOCK, ITEM, BLOCKS, ITEMS, WORLD_SEED, ATLAS_COLS, ATLAS_ROWS, CHUNK_HEIGHT,
   HOTBAR_SIZE, INVENTORY_SIZE, APPLE_DROP_CHANCE,
   SEED_DROP_CHANCE, WHEAT_GROW_CHANCE, CANE_GROW_CHANCE, toolKind, nextCropStage, isCropBlock,
   itemMaxDurability, placeableBlock, isClimbable, isSolid, isRail, stackEnchant,
@@ -63,7 +63,9 @@ scene.fog = new THREE.Fog(SKY, 45, 95);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
 const frustum = new THREE.Frustum();
 const frustumMatrix = new THREE.Matrix4();
-const chunkSphere = new THREE.Sphere(new THREE.Vector3(), 22);
+// Bounding sphere of one 16 x CHUNK_HEIGHT x 16 chunk (centre + half-diagonal).
+const CHUNK_SPHERE_RADIUS = Math.sqrt(8 * 8 + (CHUNK_HEIGHT / 2) * (CHUNK_HEIGHT / 2) + 8 * 8);
+const chunkSphere = new THREE.Sphere(new THREE.Vector3(), CHUNK_SPHERE_RADIUS);
 
 const hemi = new THREE.HemisphereLight(0xffffff, 0x556b2f, 0.95);
 scene.add(hemi);
@@ -140,12 +142,16 @@ function ensureNether() {
   return netherWorld;
 }
 
-const SAVE_VERSION = 13;
+const SAVE_VERSION = 14;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
 const hasSave = !!(save && save.version === SAVE_VERSION && save.seed === WORLD_SEED);
 if (hasSave) setMode(save.mode || 'survival');
+// Terrain profile: saved worlds keep the generator they were created with
+// (migration stamps pre-Phase-5 saves genVersion 1); fresh worlds use GEN_V2.
+// Must be set BEFORE the first chunk generates (nothing above touches chunks).
+if (hasSave) overworld.setGenVersion(save.genVersion || 1);
 if (hasSave && save.edits) overworld.loadEdits(save.edits);
 if (hasSave && save.netherEdits) ensureNether().loadEdits(save.netherEdits);
 if (hasSave && save.dimension === 'nether') {
@@ -334,7 +340,10 @@ function handleMobKill(result) {
 // `target` and rebind every world-holding subsystem to it.
 function switchDimension(target) {
   if (target === world) return;
-  // Hide the old dimension's chunk meshes (data stays; remeshed on return).
+  // Hide the old dimension's chunk meshes (data stays; remeshed on return),
+  // and drop its in-flight worker mesh jobs so late responses can't re-add
+  // geometry of the now-inactive dimension to the scene.
+  world.cancelMeshJobs();
   for (const [, entry] of world.chunks) {
     if (entry.mesh) {
       scene.remove(entry.mesh);
@@ -641,6 +650,7 @@ function gatherState() {
   return {
     version: SAVE_VERSION,
     seed: WORLD_SEED,
+    genVersion: overworld.genVersion,
     time: dayNight.t,
     mode: getMode(),
     slot: selected,
@@ -2336,6 +2346,9 @@ buildRecipeList();
 if (new URLSearchParams(location.search).has('debug')) {
   window.__game = {
     get world() { return world; },
+    // Phase 5: direct handles for worldgen checks (terrain profile, spawn scan).
+    overworld,
+    get meshPipeline() { return world.meshPipeline; },
     player,
     inventory,
     BLOCK,
@@ -4280,7 +4293,7 @@ function animate() {
   for (const [, entry] of world.chunks) {
     if (entry.mesh) {
       const p = entry.mesh.position;
-      chunkSphere.center.set(p.x + 8, 32, p.z + 8);
+      chunkSphere.center.set(p.x + 8, CHUNK_HEIGHT / 2, p.z + 8);
       entry.mesh.visible = frustum.intersectsSphere(chunkSphere);
     }
   }

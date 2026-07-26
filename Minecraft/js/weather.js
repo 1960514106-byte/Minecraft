@@ -53,7 +53,10 @@ export class Weather {
     }
 
     const biome = biomeAtFn(Math.floor(playerPos.x), Math.floor(playerPos.z));
-    this.type = biome === BIOME.SNOW ? 'snow' : (biome === BIOME.DESERT ? 'none' : 'rain');
+    // Snow biome + mountains precipitate snow; deserts stay dry; everything
+    // else (taiga included) rains.
+    this.type = (biome === BIOME.SNOW || biome === BIOME.MOUNTAINS) ? 'snow'
+      : (biome === BIOME.DESERT ? 'none' : 'rain');
     if (this.type === 'none') {
       this._clearParticles();
       return;

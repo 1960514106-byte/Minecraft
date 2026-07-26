@@ -4,14 +4,17 @@
 //
 //   node test/smoke.mjs
 //
-// Only modules with no three.js dependency are imported here. columnHeight
-// determinism is NOT checked because world.js imports three; it will move to
-// this test once terrain generation is extracted into a pure module.
+// Only modules with no three.js dependency are imported here. Terrain math
+// lives in the three-free terrain.js since Phase 5, so GEN_V1 columnHeight is
+// locked to a fixture (test/fixtures-genv1.json) computed from the
+// pre-Phase-5 code — old saves must regenerate bit-identical surfaces.
 // =============================================================================
 
+import { readFileSync } from 'node:fs';
 import {
   BLOCK, BLOCKS, ITEM, ITEMS, TILES, ATLAS_COLS, ATLAS_ROWS,
   SMELTING, FUEL, DIMENSIONS, blockDrop, blockModel,
+  CHUNK_HEIGHT, CHUNK_SIZE, NETHER_HEIGHT, SEA_LEVEL, WORLD_SEED, BIOME, BIOMES,
   encodeEdit, decodeEditId, decodeEditMeta,
   WOOL_BLOCKS, WOOL_RGB, breakDuration, toolSpeedTier,
   fluidLevel, isFluidFalling, fluidMeta, isFluidSource, fluidMaxLevel,
@@ -38,6 +41,10 @@ import {
   BrewingManager, brewResult, isBrewIngredient, BREW_MAP, SPLASHABLE, BREW_TIME,
 } from '../Minecraft/js/brewing.js';
 import { anvilResult, ANVIL_XP_COST } from '../Minecraft/js/anvil.js';
+import { TerrainGen } from '../Minecraft/js/terrain.js';
+import {
+  computeLightField, extractCenterLight, buildMeshArrays, SNAP_W, SNAP_VOL,
+} from '../Minecraft/js/meshcore.js';
 
 let failures = 0;
 function assert(cond, msg) {
@@ -346,7 +353,7 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 13, 'migrated save version is 13 (v7 chains through the whole ladder)');
+  assert(m.version === 14, 'migrated save version is 14 (v7 chains through the whole ladder)');
   assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
@@ -367,17 +374,17 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 13 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+  assert(v3.version === 14 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
     'v3 save migrates through the whole chain');
 
   // A v8 save gains the mode field, then the fluids/boats defaults.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 13 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
-    'v8 save upgrades to v13 with mode survival, ids untouched');
+  assert(v8.version === 14 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+    'v8 save upgrades to v14 with mode survival, ids untouched');
 
   // v9 -> v10: fluids/boats defaults appear, everything else untouched.
   const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
-  assert(v9.version === 13 && v9.mode === 'creative', 'v9 save upgrades to v13 (mode preserved)');
+  assert(v9.version === 14 && v9.mode === 'creative', 'v9 save upgrades to v14 (mode preserved)');
   assert(v9.fluids && Array.isArray(v9.fluids.active) && v9.fluids.active.length === 0,
     'v9 -> v10 adds an empty fluids state');
   assert(Array.isArray(v9.boats) && v9.boats.length === 0, 'v9 -> v10 adds an empty boats list');
@@ -389,8 +396,8 @@ function grid(...entries) {
     fluids: { active: ['1,2,3'] }, boats: [{ x: 1, y: 20, z: 3 }],
     mobs: [{ type: 'pig', x: 1, y: 20, z: 3, health: 8, baby: true, growTimer: 5 }],
   });
-  assert(v10.version === 13 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
-    'v10 save upgrades to v13 (fluids/boats preserved)');
+  assert(v10.version === 14 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
+    'v10 save upgrades to v14 (fluids/boats preserved)');
   assert(v10.mobs.length === 1 && v10.mobs[0].type === 'pig' && v10.mobs[0].baby === true,
     'v10 -> v11 leaves saved mobs untouched');
 
@@ -400,14 +407,14 @@ function grid(...entries) {
     version: 11, seed: 1337, mobs: [{ type: 'slime', size: 2, x: 0, z: 0 }],
     redstone: { levers: ['1,2,3'], pistons: {}, repeaters: {} },
   });
-  assert(v11.version === 13 && v11.mobs[0].size === 2, 'v11 save upgrades to v13');
+  assert(v11.version === 14 && v11.mobs[0].size === 2, 'v11 save upgrades to v14');
   assert(v11.dispensers && Object.keys(v11.dispensers).length === 0,
     'v11 -> v12 adds an empty dispensers map');
   assert(v11.hoppers && Object.keys(v11.hoppers).length === 0,
     'v11 -> v12 adds an empty hoppers map');
   assert(v11.redstone.levers[0] === '1,2,3', 'v11 -> v12 leaves redstone state untouched');
   const v12 = migrateSave({ version: 12, seed: 1337, hoppers: { 'N|1,2,3': { dir: [0, -1, 0], slots: [] } } });
-  assert(v12.version === 13 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to v13 with hoppers intact');
+  assert(v12.version === 14 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to v14 with hoppers intact');
 }
 
 // ---- Phase 3: buckets, boats, fishing, fluids ----------------------------------------------
@@ -1178,7 +1185,7 @@ function grid(...entries) {
 // ---- Phase 7: migration v12 -> v13 ----------------------------------------------------------
 {
   const v12b = migrateSave({ version: 12, seed: 1337, hoppers: {}, dispensers: {} });
-  assert(v12b.version === 13, 'v12 save upgrades to v13');
+  assert(v12b.version === 14, 'v12 save upgrades to v14');
   assert(Array.isArray(v12b.effects) && v12b.effects.length === 0, 'v12 -> v13 adds empty effects');
   assert(v12b.brewingStands && Object.keys(v12b.brewingStands).length === 0,
     'v12 -> v13 adds empty brewingStands');
@@ -1187,8 +1194,149 @@ function grid(...entries) {
     effects: [{ id: 'speed', amp: 2, t: 30 }],
     brewingStands: { '1,2,3': { bottles: [null, null, null], charges: 5, progress: 0 } },
   });
-  assert(v13.version === 13 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
-    'v13 save is a no-op');
+  assert(v13.version === 14 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
+    'v13 save chains into v14');
+}
+
+// ---- Phase 5: world height + registry additions ---------------------------------------------
+{
+  assert(CHUNK_HEIGHT === 128, 'world height is 128');
+  assert(NETHER_HEIGHT === 64, 'nether stays a 64-tall experience');
+  for (const name of ['EMERALD_ORE', 'LAPIS_ORE']) {
+    assert(BLOCK[name] >= 132 && BLOCKS[BLOCK[name]], `BLOCK.${name} defined with a BLOCKS entry`);
+    assert(BLOCKS[BLOCK[name]].minTier === 2 && BLOCKS[BLOCK[name]].tool === 'pickaxe',
+      `${name} needs a stone pickaxe`);
+  }
+  assert(ITEMS[ITEM.EMERALD] && ITEMS[ITEM.LAPIS], 'EMERALD/LAPIS items defined');
+  assert(blockDrop(BLOCK.EMERALD_ORE, ITEM.IRON_PICKAXE)[0].id === ITEM.EMERALD,
+    'emerald ore drops emeralds');
+  const lapis = blockDrop(BLOCK.LAPIS_ORE, ITEM.IRON_PICKAXE)[0];
+  assert(lapis.id === ITEM.LAPIS && lapis.count >= 4 && lapis.count <= 8,
+    'lapis ore drops 4-8 lapis');
+  assert(blockDrop(BLOCK.LAPIS_ORE, ITEM.WOODEN_PICKAXE).length === 0,
+    'lapis ore drops nothing below tier 2');
+  // New biomes registered with sane surfaces.
+  for (const name of ['OCEAN', 'BEACH', 'MOUNTAINS', 'BIRCH_FOREST', 'TAIGA', 'SWAMP']) {
+    assert(Number.isInteger(BIOME[name]) && BIOMES[BIOME[name]], `BIOME.${name} registered`);
+  }
+  assert(BIOMES[BIOME.MOUNTAINS].surface === BLOCK.STONE, 'mountains have a stone surface');
+  assert(BIOMES[BIOME.OCEAN].treeChance === 0 && BIOMES[BIOME.BEACH].treeChance === 0,
+    'no trees in oceans/beaches');
+  // Mob spawn tables pick up the new biomes.
+  assert(MOB_DEFS.wolf.spawn.biomes.includes(BIOME.TAIGA), 'wolves spawn in taiga');
+  assert(MOB_DEFS.slime.spawn.biomes.includes(BIOME.SWAMP), 'slimes prefer swamps');
+}
+
+// ---- Phase 5: GEN_V1 fidelity (CRITICAL: old-save terrain is bit-identical) ------------------
+{
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures-genv1.json', import.meta.url), 'utf8'));
+  assert(fixture.seed === WORLD_SEED, 'GEN_V1 fixture was computed for the live seed');
+  const t1 = new TerrainGen(WORLD_SEED, 1);
+  let mismatches = 0;
+  for (const [x, z, h] of fixture.samples) {
+    if (t1.columnHeightV1(x, z) !== h) mismatches++;
+    if (t1.columnHeight(x, z) !== h) mismatches++; // genVersion 1 dispatch
+  }
+  assert(mismatches === 0,
+    `GEN_V1 columnHeight matches the pre-Phase-5 fixture (${mismatches} mismatches)`);
+  // V1 biome/cave/river paths still exist and answer deterministically.
+  assert(typeof t1.biomeAtV1(10, 10) === 'number', 'biomeAtV1 answers');
+  assert(t1.caveAtV1(0, 2, 0, 30) === false, 'V1 caves never carve below y 5');
+  assert(t1.caveAtV1(0, 28, 0, 30) === false, 'V1 caves keep the 6-block surface seal');
+}
+
+// ---- Phase 5: GEN_V2 sanity ------------------------------------------------------------------
+{
+  const t2 = new TerrainGen(WORLD_SEED, 2);
+  // Scan a wide area for clear ocean / mountain continentalness samples.
+  let ocean = null, mountain = null;
+  for (let x = -2000; x <= 2000 && !(ocean && mountain); x += 40) {
+    for (let z = -2000; z <= 2000 && !(ocean && mountain); z += 40) {
+      const c = t2.contC(x, z);
+      if (!ocean && c < -0.4) ocean = { x, z, c };
+      if (!mountain && c > 0.6) mountain = { x, z, c };
+    }
+  }
+  assert(ocean, 'found a C < -0.4 (ocean) sample within +/-2000');
+  assert(mountain, 'found a C > 0.6 (mountain) sample within +/-2000');
+  if (ocean) {
+    assert(t2.columnHeightV2(ocean.x, ocean.z) < SEA_LEVEL,
+      `ocean sample is below sea level (C=${ocean.c.toFixed(2)})`);
+    assert(t2.biomeAtV2(ocean.x, ocean.z) === BIOME.OCEAN, 'C < -0.35 region classifies as OCEAN');
+  }
+  if (mountain) {
+    assert(t2.columnHeightV2(mountain.x, mountain.z) > 40,
+      `mountain sample is above y 40 (C=${mountain.c.toFixed(2)})`);
+    assert(t2.biomeAtV2(mountain.x, mountain.z) === BIOME.MOUNTAINS, 'C > 0.6 region is MOUNTAINS');
+  }
+  // Height field continuity: no cliffs — adjacent columns differ by a few blocks.
+  let maxStep = 0;
+  for (let x = -400; x < 400; x++) {
+    const a = t2.columnHeightV2(x, 137);
+    const b = t2.columnHeightV2(x + 1, 137);
+    maxStep = Math.max(maxStep, Math.abs(a - b));
+  }
+  assert(maxStep <= 6, `V2 height is cliff-free along a transect (max step ${maxStep})`);
+  // Heights stay inside the world.
+  for (const [x, z] of [[0, 0], [500, -500], [-1500, 900]]) {
+    const h = t2.columnHeightV2(x, z);
+    assert(h >= 1 && h < CHUNK_HEIGHT, `V2 height in range at ${x},${z}`);
+  }
+  // Rivers never carve oceans or mountains.
+  if (ocean) assert(t2.riverAtV2(ocean.x, ocean.z) === false, 'no rivers in oceans');
+  if (mountain) assert(t2.riverAtV2(mountain.x, mountain.z) === false, 'no rivers in mountains');
+}
+
+// ---- Phase 5: meshcore pure-function roundtrip ------------------------------------------------
+{
+  const W = SNAP_W;
+  const snapIdx = (x, y, z) => x + W * (z + W * y);
+  // Single stone block floating mid-air in the centre chunk.
+  const blocks = new Uint16Array(SNAP_VOL);
+  const meta = new Uint8Array(SNAP_VOL);
+  blocks[snapIdx(16 + 8, 10, 16 + 8)] = BLOCK.STONE;
+  const { sky, blk } = computeLightField(blocks, false);
+  assert(sky[snapIdx(16 + 8, 20, 16 + 8)] === 15, 'open sky column is fully lit');
+  assert(sky[snapIdx(16 + 8, 5, 16 + 8)] < 15, 'cell under the stone is shadowed');
+  const arrays = buildMeshArrays(blocks, meta, sky, blk, false);
+  assert(arrays.op.positions.length === 6 * 4 * 3 && arrays.op.indices.length === 6 * 6,
+    'single stone cube meshes to exactly 6 faces');
+  assert(arrays.wa.indices.length === 0, 'no water geometry for a dry snapshot');
+  const { lightSky } = extractCenterLight(sky, blk);
+  assert(lightSky.length === CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE &&
+    lightSky[8 + CHUNK_SIZE * (8 + CHUNK_SIZE * 20)] === 15,
+    'centre-chunk light extraction lines up');
+
+  // Greedy water: a 4x4 slab of SOURCE water on stone merges its whole top
+  // surface into ONE quad; a flowing cell (meta level > 0) does not merge.
+  const blocks2 = new Uint16Array(SNAP_VOL);
+  const meta2 = new Uint8Array(SNAP_VOL);
+  for (let dz = 0; dz < 4; dz++) {
+    for (let dx = 0; dx < 4; dx++) {
+      blocks2[snapIdx(16 + 4 + dx, 9, 16 + 4 + dz)] = BLOCK.STONE;  // floor
+      blocks2[snapIdx(16 + 4 + dx, 10, 16 + 4 + dz)] = BLOCK.WATER; // sources
+    }
+  }
+  const l2 = computeLightField(blocks2, false);
+  const a2 = buildMeshArrays(blocks2, meta2, l2.sky, l2.blk, false);
+  // 1 merged top quad + 4x4 sides exposed to air (16 edge faces) = 17 quads.
+  const waterQuads = a2.wa.positions.length / 12;
+  assert(waterQuads === 1 + 16, `ocean-style water surface merges (got ${waterQuads} quads, want 17)`);
+
+  const meta3 = new Uint8Array(SNAP_VOL);
+  meta3[snapIdx(16 + 5, 10, 16 + 5)] = 2; // one flowing cell breaks the merge
+  const a3 = buildMeshArrays(blocks2, meta3, l2.sky, l2.blk, false);
+  assert(a3.wa.positions.length / 12 > waterQuads,
+    'flowing water (meta level) breaks the greedy merge');
+}
+
+// ---- Phase 5: migration v13 -> v14 -------------------------------------------------------------
+{
+  const v13g = migrateSave({ version: 13, seed: 1337, effects: [], brewingStands: {} });
+  assert(v13g.version === 14 && v13g.genVersion === 1,
+    'v13 -> v14 stamps genVersion 1 on old saves');
+  const v14 = migrateSave({ version: 14, seed: 1337, genVersion: 2 });
+  assert(v14.version === 14 && v14.genVersion === 2, 'v14 save with genVersion 2 is untouched');
 }
 
 // ---- Noise determinism ------------------------------------------------------------------
@@ -1203,7 +1351,7 @@ function grid(...entries) {
     }
   }
   assert(same, 'Noise(fbm2D) is deterministic for a fixed seed');
-  // columnHeight determinism itself is skipped: world.js imports three.
+  // columnHeight determinism is covered by the GEN_V1 fixture block above.
 }
 
 if (failures) {

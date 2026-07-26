@@ -6,17 +6,24 @@
 // Extends World: same chunk streaming / edits / lighting machinery, different
 // terrain generator and no skylight. Coordinates map 1:4 to the overworld
 // (handled by portal travel in main.js).
+//
+// The nether stays a 64-tall experience inside the 128-tall data volume: the
+// bedrock roof sits at NETHER_HEIGHT-1 (63, exactly where it was before the
+// Phase-5 height raise) and everything above stays AIR — so old nether saves
+// regenerate bit-identically.
 // =============================================================================
 
 import { World } from './world.js';
 import { decorateStructures } from './structures.js';
-import { CHUNK_SIZE, CHUNK_HEIGHT, BLOCK, DIMENSIONS } from './config.js';
+import { CHUNK_SIZE, NETHER_HEIGHT, BLOCK, DIMENSIONS } from './config.js';
 
 const LAVA_LEVEL = 12;
 
 export class NetherWorld extends World {
   constructor(scene, atlasTexture) {
-    super(scene, atlasTexture);
+    // The nether has its own generator; keep the legacy terrain profile so
+    // nothing in the shared machinery changes behaviour.
+    super(scene, atlasTexture, 1);
     this.dim = DIMENSIONS.nether; // no sky: world.skyless derives from this
   }
 
@@ -27,7 +34,7 @@ export class NetherWorld extends World {
 
   netherCeiling(wx, wz) {
     const n = this.noise.fbm2D(wx - 8000, wz + 8000, { frequency: 0.025, octaves: 3 });
-    return Math.max(42, Math.min(CHUNK_HEIGHT - 2, Math.floor(52 + n * 7)));
+    return Math.max(42, Math.min(NETHER_HEIGHT - 2, Math.floor(52 + n * 7)));
   }
 
   generateChunk(chunk) {
@@ -40,9 +47,11 @@ export class NetherWorld extends World {
         const floorH = this.netherFloor(wx, wz);
         const ceilH = this.netherCeiling(wx, wz);
 
-        for (let y = 0; y < CHUNK_HEIGHT; y++) {
+        // Everything from NETHER_HEIGHT up stays AIR (the roof caps the
+        // playable cavern exactly like it did at world height 64).
+        for (let y = 0; y < NETHER_HEIGHT; y++) {
           let id = BLOCK.AIR;
-          if (y === 0 || y === CHUNK_HEIGHT - 1) {
+          if (y === 0 || y === NETHER_HEIGHT - 1) {
             id = BLOCK.BEDROCK;
           } else if (y <= floorH) {
             id = BLOCK.NETHERRACK;

@@ -6,7 +6,10 @@
 
 // ---- World dimensions -------------------------------------------------------
 export const CHUNK_SIZE = 16;      // blocks per chunk along X and Z
-export const CHUNK_HEIGHT = 64;    // total world height in blocks (Y: 0..63)
+export const CHUNK_HEIGHT = 128;   // total world height in blocks (Y: 0..127)
+// The nether remains a 64-tall experience inside the 128-tall data volume: its
+// bedrock roof sits at NETHER_HEIGHT-1 and everything above stays AIR.
+export const NETHER_HEIGHT = 64;
 export const RENDER_DISTANCE = 6;  // chunk radius loaded around the player
 export const WORLD_SEED = 1337;
 
@@ -160,6 +163,9 @@ export const BLOCK = {
   NETHER_WART_1: 129,
   NETHER_WART_2: 130,
   ANVIL: 131,              // plain cube with an anvil-silhouette texture
+  // ---- Phase 5: worldgen 2.0 ores (132+) --------------------------------------
+  EMERALD_ORE: 132,        // mountains-only; future villager trade currency
+  LAPIS_ORE: 133,          // deep ore; drops 4-8 lapis (future enchanting currency)
 };
 
 // Wool blocks in vanilla colour order, plus the RGB used by the texture
@@ -506,6 +512,12 @@ export const TILES = {
   POTION_SLOWNESS: 244,
   POTION_WEAKNESS: 245,
   SHIELD:         246,
+  // ---- Phase 5 (247+): worldgen 2.0 ores + currencies ----------------------------
+  // --- row 62 (248..251) ---
+  EMERALD_ORE:    247,
+  LAPIS_ORE:      248,
+  EMERALD:        249,
+  LAPIS:          250,
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -638,6 +650,9 @@ export const ITEM = {
   POTION_SLOWNESS: 1115,
   POTION_WEAKNESS: 1116,
   SHIELD: 1117,
+  // ---- Phase 5 (1118+): worldgen 2.0 currencies ---------------------------------
+  EMERALD: 1118,
+  LAPIS: 1119,
 };
 
 // Per-block definition. `top`/`bottom`/`side` are atlas tile indices.
@@ -822,6 +837,9 @@ export const BLOCKS = {
   // Anvil: plain cube with an anvil-silhouette texture (a real anvil shape is
   // future polish — documented). Right-click opens the repair screen.
   [BLOCK.ANVIL]: { name: 'Anvil', top: TILES.ANVIL_TOP, bottom: TILES.ANVIL_SIDE, side: TILES.ANVIL_SIDE, solid: true, transparent: false, hardness: 3.0, tool: 'pickaxe' },
+  // ---- Phase 5: worldgen 2.0 ores -------------------------------------------------
+  [BLOCK.EMERALD_ORE]: { name: 'Emerald Ore', top: TILES.EMERALD_ORE, bottom: TILES.EMERALD_ORE, side: TILES.EMERALD_ORE, solid: true, transparent: false, hardness: 2.6, tool: 'pickaxe', minTier: 2, drops: [{ id: ITEM.EMERALD, count: 1 }] },
+  [BLOCK.LAPIS_ORE]: { name: 'Lapis Lazuli Ore', top: TILES.LAPIS_ORE, bottom: TILES.LAPIS_ORE, side: TILES.LAPIS_ORE, solid: true, transparent: false, hardness: 2.4, tool: 'pickaxe', minTier: 2, drops: [{ id: ITEM.LAPIS, count: 4, max: 8 }] }, // count..max rolled by blockDrop()
 };
 
 // Blocks selectable in the hotbar (1..N keys), in order.
@@ -973,6 +991,9 @@ export const ITEMS = {
   // Shield: hold right-click to block (30% move speed; frontal damage -66%,
   // the prevented damage is charged to the shield's durability instead).
   [ITEM.SHIELD]: { name: 'Shield', tile: TILES.SHIELD, stack: 1, durability: 336 },
+  // ---- Phase 5: worldgen 2.0 currencies -------------------------------------------
+  [ITEM.EMERALD]: { name: 'Emerald', tile: TILES.EMERALD },
+  [ITEM.LAPIS]: { name: 'Lapis Lazuli', tile: TILES.LAPIS },
 };
 
 // True if an item ID refers to a placeable block (vs. an item-only thing).
@@ -1113,7 +1134,15 @@ export function armorSlotOf(id) {
 export function blockDrop(id, itemId = null) {
   const b = BLOCKS[id];
   if (b && b.minTier && (toolKind(itemId) !== b.tool || toolTier(itemId) < b.minTier)) return [];
-  if (b && b.drops) return b.drops;
+  if (b && b.drops) {
+    // Ranged drops: an entry with `max` rolls count..max (e.g. lapis 4-8).
+    if (b.drops.some((d) => d.max)) {
+      return b.drops.map((d) => d.max
+        ? { id: d.id, count: d.count + Math.floor(Math.random() * (d.max - d.count + 1)) }
+        : d);
+    }
+    return b.drops;
+  }
   switch (id) {
     case BLOCK.AIR:
     case BLOCK.WATER:
@@ -1194,7 +1223,11 @@ export function isCropBlock(id) {
 // Picked per-column from low-frequency temperature/moisture noise. Biomes only
 // repaint the surface palette and vary tree density - terrain HEIGHT is shared
 // across all biomes so their borders never form cliffs.
-export const BIOME = { PLAINS: 0, FOREST: 1, DESERT: 2, SNOW: 3, JUNGLE: 4, MUSHROOM: 5, FLOWER_FOREST: 6 };
+export const BIOME = {
+  PLAINS: 0, FOREST: 1, DESERT: 2, SNOW: 3, JUNGLE: 4, MUSHROOM: 5, FLOWER_FOREST: 6,
+  // Phase 5 (GEN_V2 worlds only): continentalness-driven biomes.
+  OCEAN: 7, BEACH: 8, MOUNTAINS: 9, BIRCH_FOREST: 10, TAIGA: 11, SWAMP: 12,
+};
 export const BIOMES = {
   [BIOME.PLAINS]:        { name: 'Plains',        surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.012 },
   [BIOME.FOREST]:        { name: 'Forest',        surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.060 },
@@ -1203,6 +1236,14 @@ export const BIOMES = {
   [BIOME.JUNGLE]:        { name: 'Jungle',        surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.085, tallTree: true },
   [BIOME.MUSHROOM]:      { name: 'Mushroom',      surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.000, mushroomChance: 0.03 },
   [BIOME.FLOWER_FOREST]: { name: 'Flower Forest', surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.035, flowerChance: 0.12 },
+  // ---- Phase 5: GEN_V2 biomes ---------------------------------------------------
+  [BIOME.OCEAN]:         { name: 'Ocean',         surface: BLOCK.SAND,  subsurface: BLOCK.SAND, treeChance: 0.000 },
+  [BIOME.BEACH]:         { name: 'Beach',         surface: BLOCK.SAND,  subsurface: BLOCK.SAND, treeChance: 0.000 },
+  // Mountains: bare stone surface; generateChunkV2 caps peaks above y 80 in snow.
+  [BIOME.MOUNTAINS]:     { name: 'Mountains',     surface: BLOCK.STONE, subsurface: BLOCK.STONE, treeChance: 0.003 },
+  [BIOME.BIRCH_FOREST]:  { name: 'Birch Forest',  surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.055 },
+  [BIOME.TAIGA]:         { name: 'Taiga',         surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.045 },
+  [BIOME.SWAMP]:         { name: 'Swamp',         surface: BLOCK.GRASS, subsurface: BLOCK.DIRT, treeChance: 0.028 },
 };
 export function biomeDef(id) { return BIOMES[id]; }
 
@@ -1363,6 +1404,8 @@ export function xpFromMining(blockId) {
     case BLOCK.GOLD_ORE: return 2;
     case BLOCK.REDSTONE_ORE: return 2;
     case BLOCK.DIAMOND_ORE: return 5;
+    case BLOCK.EMERALD_ORE: return 4;
+    case BLOCK.LAPIS_ORE: return 2;
     case BLOCK.MOB_SPAWNER: return 15;
     case BLOCK.GLOWSTONE: return 1;
     default: return 0;

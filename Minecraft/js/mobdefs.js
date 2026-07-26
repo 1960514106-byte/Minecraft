@@ -102,7 +102,8 @@ export const MOB_DEFS = {
     drops: (mob) => ((mob.size || 1) <= 1 ? [{ id: ITEM.SLIMEBALL, prob: 1, min: 1, max: 2 }] : []),
     sizes: { 3: { hp: 16, xp: 4, damage: 4 }, 2: { hp: 4, xp: 2, damage: 2 }, 1: { hp: 1, xp: 1, damage: 0 } },
     split: true,
-    spawn: { dim: 'overworld', time: 'night', weight: 0.15, biomes: [BIOME.PLAINS] },
+    // Slimes prefer swamps (GEN_V2) but keep their old plains haunt too.
+    spawn: { dim: 'overworld', time: 'night', weight: 0.15, biomes: [BIOME.PLAINS, BIOME.SWAMP] },
   },
   silverfish: {
     name: 'Silverfish', hp: 8, speed: 3.5, hostile: true, ai: 'silverfish', mesh: 'silverfish',
@@ -163,7 +164,7 @@ export const MOB_DEFS = {
     // kind 'wolf': spawned through its own 12%-roll path, not the ambient list.
     spawn: {
       dim: 'overworld', time: 'day', weight: 1, kind: 'wolf',
-      biomes: [BIOME.FOREST, BIOME.SNOW, BIOME.FLOWER_FOREST],
+      biomes: [BIOME.FOREST, BIOME.SNOW, BIOME.FLOWER_FOREST, BIOME.TAIGA],
     },
     sound: { name: 'wolfBark', range: 12, prob: 0.3 },
   },

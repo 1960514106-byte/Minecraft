@@ -84,6 +84,9 @@ const BLOCK_COLORS = {
   [BLOCK.NETHER_WART_1]: [136, 32, 38],
   [BLOCK.NETHER_WART_2]: [152, 28, 36],
   [BLOCK.ANVIL]: [58, 58, 64],
+  // Phase 5: worldgen 2.0 ores.
+  [BLOCK.EMERALD_ORE]: [70, 190, 110],
+  [BLOCK.LAPIS_ORE]: [55, 85, 190],
 };
 // All 16 wool colours share the registry palette.
 for (const woolId of WOOL_BLOCKS) BLOCK_COLORS[woolId] = WOOL_RGB[woolId];

@@ -8,19 +8,36 @@ vendored locally under `js/vendor/`.
 ## Features
 
 ### World
-- Infinite, chunk-based procedural world with Perlin-noise terrain and rivers
-- Seven biomes — plains, forest, desert, snow, jungle, mushroom and flower
-  forest — chosen from low-frequency temperature and moisture noise
-- Trees, jungle trees, giant mushrooms, cactus, flowers and small surface ruins
-- Underground caves carved with deterministic 3D noise
-- Coal, iron, gold, redstone and diamond ore veins in the stone layers
+- Infinite, chunk-based procedural world, **128 blocks tall**, with rivers
+- **Worldgen 2.0 (new worlds)**: a low-frequency *continentalness* field
+  drives a C1-continuous height spline — deep **oceans** (floor y 8–14 under
+  sea level 20), beaches, coasts, plains, hills and **mountains** rising past
+  y 95 with ridged peaks up to ~110 and **snow caps above y 80**. Biomes agree
+  with the height field, so shores and ranges never form cliffs
+- Thirteen biomes — plains, forest, desert, snow, jungle, mushroom, flower
+  forest, **ocean, beach, mountains, birch forest, taiga and swamp** (clay
+  pools + water patches) — temperature/moisture flavour layered under the
+  continentalness bands
+- Old saves keep their exact terrain: the save records a `genVersion`, and
+  the legacy generator is preserved bit-for-bit (the height raise only adds
+  air above)
+- Trees (oak/birch/spruce/jungle), giant mushrooms, cactus, flowers, ruins
+- Underground: worm caves that now **break the surface** (natural cave
+  mouths), thin winding **noodle caves** and rare **ravines** 15–25 deep
+- Coal, iron, gold, redstone, diamond, **lapis** (deep; drops 4–8 lapis) and
+  **emerald** (mountains only) ore veins in the stone layers
 - **Villages**: multi-building settlements with houses, farm plots, wells,
   lamp posts, gravel paths and a loot chest
 - **Dungeons**: buried cobblestone rooms holding a working mob spawner and
   loot chests
 - **Abandoned mineshafts**: corridor networks with support frames, plank
   bridges, rails, torches and loot chests
-- Greedy meshing for opaque terrain, translucent animated water in its own pass
+- Greedy meshing for opaque terrain, translucent animated water in its own
+  pass (ocean surfaces greedy-merge their top faces)
+- **Web-worker mesh pipeline**: voxel lighting + geometry for streaming chunks
+  are computed in a 2-worker pool from block snapshots (transferables both
+  ways), with an automatic synchronous fallback (`?workers=0`, `file://`, or
+  worker failure); edit remeshes stay synchronous for instant feedback
 - Chunk streaming around the player with frustum culling
 
 ### Lighting
@@ -259,8 +276,11 @@ js/
   config.js       # constants, block/item defs, atlas UVs, recipes tables, helpers
   noise.js        # seeded 2D Perlin noise + fbm
   textures.js     # procedurally paints the texture atlas to a canvas
-  lighting.js     # BFS sky/block light fields per chunk
-  chunk.js        # chunk storage + greedy mesher + block models + lit materials
+  lighting.js     # BFS sky/block light fields per chunk (sync/edit path)
+  terrain.js      # pure terrain math: GEN_V1 (legacy) + GEN_V2 (continentalness)
+  meshcore.js     # pure light+mesh functions over 3x3-chunk snapshots
+  meshworker.js   # Web Worker wrapper around meshcore (2-worker pool)
+  chunk.js        # chunk storage + geometry upload + lit materials
   world.js        # biomes, terrain, caves, ores, trees, streaming, edits, raycast
   nether.js       # the nether dimension (roofed cavern world, lava sea)
   structures.js   # villages, dungeons, mineshafts, fortresses + loot tables
@@ -294,10 +314,19 @@ js/
 ## Architecture notes
 
 - `config.js` is the contract. Shared constants, block definitions, atlas UV
-  math and cube faces live there. Block IDs stay ≤ 99 (chunk data is a
-  `Uint8Array`); item IDs start at 100.
-- Chunks are `16 x 64 x 16`. Block data is a flat `Uint8Array` indexed as
-  `x + 16 * (z + 16 * y)`.
+  math and cube faces live there. Block IDs stay < 1000 (chunk data is a
+  `Uint16Array`); item IDs start at 1000.
+- Chunks are `16 x 128 x 16`. Block data is a flat `Uint16Array` indexed as
+  `x + 16 * (z + 16 * y)`, with a parallel `Uint8Array` of per-voxel metadata.
+  The nether generates only its lower 64 blocks (bedrock roof at y 63), so its
+  pre-raise terrain is untouched.
+- Terrain profiles: `World.genVersion` selects GEN_V1 (legacy, bit-identical
+  for old saves) or GEN_V2 (continentalness) inside `terrain.js`, which is
+  three-free so the Node smoke suite locks GEN_V1 to a height fixture.
+- Meshing: `meshcore.js` holds pure snapshot-based light + geometry functions.
+  Streaming chunks snapshot their 3×3 neighbourhood and go through a shared
+  2-worker pool (stale results are dropped via per-chunk revision counters);
+  block edits rebuild synchronously through the same meshcore code.
 - Blocks carry no metadata: orientation/state for pistons, repeaters, levers
   and buttons lives in side tables inside `redstone.js`, serialized with the
   save.
@@ -313,7 +342,8 @@ js/
   diff. Portal travel swaps chunk meshes, rebinds subsystems and parks loose
   entities (drops/minecarts) per dimension.
 - Saves store diffs against the procedural seed for BOTH dimensions, plus all
-  entity/system state (SAVE_VERSION 7; older saves load with safe defaults).
+  entity/system state (SAVE_VERSION 14; older saves upgrade through the
+  `storage.js` migration chain — v13→14 stamps `genVersion: 1`).
 - Known scope cut: the boss despawns on save/load (summon it again with a new
   sigil).
 
@@ -348,8 +378,8 @@ Shield: 6 planks + iron ingot (top middle)
 
 ## Possible extensions
 
-- Web Worker chunk pipeline (generation + lighting + meshing off the main thread)
-- Flowing water/lava dynamics
+- Chunk DATA generation off the main thread too (light+mesh already run in
+  workers)
 - Splitting `main.js` into focused UI/interaction modules
 - More nether biomes
 - Multiplayer

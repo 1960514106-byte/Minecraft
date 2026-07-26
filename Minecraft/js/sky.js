@@ -6,6 +6,7 @@
 // =============================================================================
 
 import * as THREE from 'three';
+import { CHUNK_HEIGHT } from './config.js';
 
 // Full cycle length in seconds (a comfortable ~4 min day for a prototype).
 const DAY_LENGTH = 240;
@@ -127,8 +128,8 @@ export class DayNightCycle {
       depthWrite: false, fog: false, side: THREE.DoubleSide,
     });
     this.clouds = new THREE.Mesh(new THREE.PlaneGeometry(this.cloudSize, this.cloudSize), this.cloudMat);
-    this.clouds.rotation.x = -Math.PI / 2; // lay flat
-    this.clouds.position.y = 96;           // well above the tallest terrain
+    this.clouds.rotation.x = -Math.PI / 2;         // lay flat
+    this.clouds.position.y = CHUNK_HEIGHT + 32;    // well above the tallest terrain
     this.clouds.renderOrder = -1;          // behind translucent water etc.
     scene.add(this.clouds);
 
