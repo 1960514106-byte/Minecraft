@@ -4,7 +4,7 @@
 // =============================================================================
 
 import * as THREE from 'three';
-import { TILE_PX, ATLAS_COLS, ATLAS_ROWS, TILES } from './config.js';
+import { TILE_PX, ATLAS_COLS, ATLAS_ROWS, TILES, BLOCKS, WOOL_BLOCKS, WOOL_RGB } from './config.js';
 
 // Deterministic noise so the atlas looks the same every run.
 function mulberry32(a) {
@@ -74,40 +74,62 @@ export function createAtlasTexture() {
   // ---- SAND : tan speckle --------------------------------------------------
   speckle(TILES.SAND, [219, 203, 150], 16);
 
-  // ---- WOOD_TOP : concentric growth rings ----------------------------------
-  {
-    const { ox, oy } = speckle(TILES.WOOD_TOP, [160, 120, 72], 8);
+  // ---- Parameterized wood-family painters ------------------------------------
+  // One painter per surface kind, taking the palette as arguments so birch and
+  // spruce reuse the exact oak drawing code with different colours. Oak calls
+  // sit at their original positions so the deterministic rng stream (and thus
+  // every pre-existing tile) is unchanged.
+  const woodTopTile = (index, base, ring) => {
+    const { ox, oy } = speckle(index, base, 8);
     const cx = TILE_PX / 2 - 0.5, cy = TILE_PX / 2 - 0.5;
     for (let y = 0; y < TILE_PX; y++) {
       for (let x = 0; x < TILE_PX; x++) {
         const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-        if ((Math.round(d) % 2) === 0) setpx(ox + x, oy + y, 120, 86, 50);
+        if ((Math.round(d) % 2) === 0) setpx(ox + x, oy + y, ring[0], ring[1], ring[2]);
       }
     }
-  }
-
-  // ---- WOOD_SIDE : vertical bark grain --------------------------------------
-  {
-    const { ox, oy } = speckle(TILES.WOOD_SIDE, [110, 80, 50], 10);
+  };
+  const woodSideTile = (index, base, streak) => {
+    const { ox, oy } = speckle(index, base, 10);
     for (let x = 0; x < TILE_PX; x++) {
       if (rng() > 0.6) {
         for (let y = 0; y < TILE_PX; y++) {
           const n = (rng() * 2 - 1) * 8;
-          setpx(ox + x, oy + y, 88 + n, 62 + n, 38 + n);
+          setpx(ox + x, oy + y, streak[0] + n, streak[1] + n, streak[2] + n);
         }
       }
     }
-  }
-
-  // ---- LEAVES : noisy dark green --------------------------------------------
-  {
-    const { ox, oy } = speckle(TILES.LEAVES, [46, 110, 44], 26);
+  };
+  const leavesTile = (index, base, dark) => {
+    const { ox, oy } = speckle(index, base, 26);
     for (let y = 0; y < TILE_PX; y++) {
       for (let x = 0; x < TILE_PX; x++) {
-        if (rng() > 0.82) setpx(ox + x, oy + y, 28, 78, 30); // dark gaps
+        if (rng() > 0.82) setpx(ox + x, oy + y, dark[0], dark[1], dark[2]); // dark gaps
       }
     }
-  }
+  };
+  const plankTile = (index, base, seam, grain) => {
+    const { ox, oy } = speckle(index, base, 10);
+    for (let y = 0; y < TILE_PX; y++) {
+      if (y % 4 === 0) {                          // dark seam between boards
+        for (let x = 0; x < TILE_PX; x++) setpx(ox + x, oy + y, seam[0], seam[1], seam[2]);
+      } else if (rng() > 0.7) {                   // faint grain streak
+        for (let x = 0; x < TILE_PX; x++) {
+          const n = (rng() * 2 - 1) * 8;
+          setpx(ox + x, oy + y, grain[0] + n, grain[1] + n, grain[2] + n);
+        }
+      }
+    }
+  };
+
+  // ---- WOOD_TOP : concentric growth rings ----------------------------------
+  woodTopTile(TILES.WOOD_TOP, [160, 120, 72], [120, 86, 50]);
+
+  // ---- WOOD_SIDE : vertical bark grain --------------------------------------
+  woodSideTile(TILES.WOOD_SIDE, [110, 80, 50], [88, 62, 38]);
+
+  // ---- LEAVES : noisy dark green --------------------------------------------
+  leavesTile(TILES.LEAVES, [46, 110, 44], [28, 78, 30]);
 
   // ---- BEDROCK : dark mottled ----------------------------------------------
   {
@@ -143,19 +165,7 @@ export function createAtlasTexture() {
   }
 
   // ---- PLANK : sawn boards with horizontal seams and vertical grain --------
-  {
-    const { ox, oy } = speckle(TILES.PLANK, [178, 138, 86], 10);
-    for (let y = 0; y < TILE_PX; y++) {
-      if (y % 4 === 0) {                          // dark seam between boards
-        for (let x = 0; x < TILE_PX; x++) setpx(ox + x, oy + y, 120, 88, 52);
-      } else if (rng() > 0.7) {                   // faint grain streak
-        for (let x = 0; x < TILE_PX; x++) {
-          const n = (rng() * 2 - 1) * 8;
-          setpx(ox + x, oy + y, 168 + n, 128 + n, 78 + n);
-        }
-      }
-    }
-  }
+  plankTile(TILES.PLANK, [178, 138, 86], [120, 88, 52], [168, 128, 78]);
 
   // ---- APPLE : round red item on transparent background --------------------
   {
@@ -1681,6 +1691,181 @@ export function createAtlasTexture() {
     setpx(ox + (cx | 0), oy + 3, 120, 84, 40);
     setpx(ox + 5, oy + 6, 255, 236, 150);
   }
+
+  // ===========================================================================
+  // Phase 2 tiles (157+): wood variants, sandstone, sugar cane, wool x16,
+  // gold gear, dyes. Appended AFTER every pre-existing tile so the shared rng
+  // stream leaves the old tiles pixel-identical.
+  // ===========================================================================
+
+  // ---- Birch: pale trunk, light planks, bright leaves -------------------------
+  woodTopTile(TILES.BIRCH_WOOD_TOP, [214, 205, 178], [168, 158, 128]);
+  woodSideTile(TILES.BIRCH_WOOD_SIDE, [208, 204, 192], [64, 58, 50]); // white bark, dark scars
+  plankTile(TILES.BIRCH_PLANK, [214, 196, 150], [162, 144, 104], [200, 182, 136]);
+  leavesTile(TILES.BIRCH_LEAVES, [92, 160, 70], [58, 118, 46]);
+
+  // ---- Spruce: dark trunk, reddish-brown planks, dark blue-green leaves --------
+  woodTopTile(TILES.SPRUCE_WOOD_TOP, [106, 74, 44], [78, 52, 30]);
+  woodSideTile(TILES.SPRUCE_WOOD_SIDE, [72, 50, 30], [52, 36, 22]);
+  plankTile(TILES.SPRUCE_PLANK, [122, 86, 52], [82, 58, 34], [110, 76, 46]);
+  leavesTile(TILES.SPRUCE_LEAVES, [40, 84, 60], [24, 58, 44]);
+
+  // ---- SANDSTONE : layered sandy block -----------------------------------------
+  {
+    const { ox, oy } = speckle(TILES.SANDSTONE_TOP, [222, 206, 156], 10);
+    for (let i = 1; i < TILE_PX - 1; i++) {
+      setpx(ox + i, oy + 1, 234, 220, 172);
+      setpx(ox + i, oy + 14, 198, 180, 130);
+    }
+  }
+  {
+    const { ox, oy } = speckle(TILES.SANDSTONE_SIDE, [220, 203, 152], 8);
+    for (let y = 0; y < TILE_PX; y++) {
+      if (y % 5 === 0) {                              // sediment layer lines
+        for (let x = 0; x < TILE_PX; x++) {
+          const n = (rng() * 2 - 1) * 8;
+          setpx(ox + x, oy + y, 196 + n, 178 + n, 128 + n);
+        }
+      } else if (rng() > 0.75) {                      // faint darker band
+        for (let x = 0; x < TILE_PX; x++) {
+          const n = (rng() * 2 - 1) * 6;
+          setpx(ox + x, oy + y, 210 + n, 192 + n, 142 + n);
+        }
+      }
+    }
+  }
+
+  // ---- SUGAR_CANE : cutout of jointed green stalks ------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.SUGAR_CANE);
+    for (const bx of [3, 7, 12]) {
+      for (let y = 0; y < TILE_PX; y++) {
+        const joint = y % 5 === 4;
+        const n = (rng() * 2 - 1) * 10;
+        setpx(ox + bx, oy + y, (joint ? 176 : 140) + n, (joint ? 200 : 190) + n, (joint ? 120 : 96) + n);
+        setpx(ox + bx + 1, oy + y, (joint ? 156 : 118) + n, (joint ? 182 : 168) + n, (joint ? 104 : 80) + n);
+      }
+    }
+  }
+
+  // ---- SUGAR (item) : fine white pile --------------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.SUGAR);
+    for (let y = 8; y <= 13; y++) {
+      const w = y - 6;
+      for (let x = 8 - w; x <= 7 + w; x++) {
+        if (rng() > 0.82) continue;
+        const n = (rng() * 2 - 1) * 10;
+        setpx(ox + x, oy + y, 244 + n, 244 + n, 248 + n);
+      }
+    }
+    setpx(ox + 7, oy + 7, 255, 255, 255);
+    setpx(ox + 9, oy + 9, 255, 255, 255);
+  }
+
+  // ---- WOOL x16 : one parameterized painter ---------------------------------------
+  const paintWool = (index, r, g, b) => {
+    const col = index % ATLAS_COLS;
+    const row = Math.floor(index / ATLAS_COLS);
+    const ox = col * TILE_PX, oy = row * TILE_PX;
+    for (let y = 0; y < TILE_PX; y++) {
+      for (let x = 0; x < TILE_PX; x++) {
+        const n = (rng() * 2 - 1) * 12;
+        setpx(ox + x, oy + y, r + n, g + n, b + n);
+      }
+    }
+    // Soft woven highlight dots
+    for (let y = 1; y < TILE_PX; y += 2) {
+      for (let x = 1; x < TILE_PX; x += 2) {
+        if (rng() > 0.55) setpx(ox + x, oy + y, r + 14, g + 14, b + 14);
+      }
+    }
+  };
+  for (const woolId of WOOL_BLOCKS) {
+    const [wr, wg, wb] = WOOL_RGB[woolId];
+    paintWool(BLOCKS[woolId].top, wr, wg, wb);
+  }
+
+  // ---- GOLDEN TOOLS -----------------------------------------------------------------
+  const GOLD_HI = [240, 204, 70];   // bright head
+  const GOLD_LO = [186, 146, 38];   // shaded edge
+  {
+    const { ox, oy } = toolTile(TILES.GOLDEN_PICKAXE);
+    drawHandle(ox, oy);
+    for (let x = 3; x <= 12; x++) {
+      setpx(ox + x, oy + 3, GOLD_HI[0], GOLD_HI[1], GOLD_HI[2]);
+      setpx(ox + x, oy + 4, GOLD_LO[0], GOLD_LO[1], GOLD_LO[2]);
+    }
+    setpx(ox + 2, oy + 4, 158, 120, 28);
+    setpx(ox + 13, oy + 4, 158, 120, 28);
+  }
+  {
+    const { ox, oy } = toolTile(TILES.GOLDEN_AXE);
+    drawHandle(ox, oy);
+    for (let y = 2; y <= 7; y++) {
+      for (let x = 3; x <= 8; x++) {
+        if (x + y < 8 || x - y > 3) continue;
+        setpx(ox + x, oy + y, GOLD_HI[0], GOLD_HI[1], GOLD_HI[2]);
+      }
+    }
+    for (let y = 3; y <= 6; y++) setpx(ox + 8, oy + y, GOLD_LO[0], GOLD_LO[1], GOLD_LO[2]);
+  }
+  {
+    const { ox, oy } = toolTile(TILES.GOLDEN_SHOVEL);
+    drawHandle(ox, oy);
+    for (let y = 2; y <= 7; y++) {
+      for (let x = 5; x <= 10; x++) {
+        const dx = Math.abs(x - 7.5);
+        if (dx + Math.abs(y - 4.5) > 4.2) continue;
+        setpx(ox + x, oy + y, GOLD_HI[0], GOLD_HI[1], GOLD_HI[2]);
+      }
+    }
+    setpx(ox + 7, oy + 7, GOLD_LO[0], GOLD_LO[1], GOLD_LO[2]);
+    setpx(ox + 8, oy + 7, GOLD_LO[0], GOLD_LO[1], GOLD_LO[2]);
+  }
+  swordTile(TILES.GOLDEN_SWORD, GOLD_HI, GOLD_LO);
+  hoeTile(TILES.GOLDEN_HOE, GOLD_HI);
+
+  // ---- GOLDEN ARMOR -------------------------------------------------------------------
+  helmetTile(TILES.GOLDEN_HELMET, [226, 186, 56]);
+  chestTile(TILES.GOLDEN_CHEST, [226, 186, 56]);
+  leggingsTile(TILES.GOLDEN_LEGS, [226, 186, 56]);
+  bootsTile(TILES.GOLDEN_BOOTS, [226, 186, 56]);
+
+  // ---- GOLDEN_CARROT ---------------------------------------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.GOLDEN_CARROT);
+    for (let y = 5; y <= 13; y++) {
+      const w = Math.max(0, Math.round(2.5 - (y - 5) * 0.3));
+      for (let x = 8 - w; x <= 8 + w; x++) {
+        const n = (rng() * 2 - 1) * 10;
+        setpx(ox + x, oy + y, 240 + n, 196 + n, 60 + n);
+      }
+    }
+    setpx(ox + 7, oy + 3, 60, 140, 50);
+    setpx(ox + 9, oy + 3, 60, 140, 50);
+    setpx(ox + 8, oy + 4, 70, 150, 56);
+    setpx(ox + 6, oy + 7, 255, 240, 150);              // gilded sparkle
+  }
+
+  // ---- DYES : small powder piles ------------------------------------------------------------
+  const dyeTile = (index, base) => {
+    const { ox, oy } = toolTile(index);
+    for (let y = 7; y <= 12; y++) {
+      const w = 12 - y + 2;
+      for (let x = 8 - w; x <= 7 + w; x++) {
+        if (rng() > 0.8) continue;
+        const n = (rng() * 2 - 1) * 14;
+        setpx(ox + x, oy + y, base[0] + n, base[1] + n, base[2] + n);
+      }
+    }
+  };
+  dyeTile(TILES.RED_DYE, [198, 44, 36]);
+  dyeTile(TILES.YELLOW_DYE, [240, 214, 48]);
+  dyeTile(TILES.GREEN_DYE, [72, 158, 52]);
+  dyeTile(TILES.ORANGE_DYE, [236, 140, 36]);
+  dyeTile(TILES.LIME_DYE, [140, 220, 60]);
+  dyeTile(TILES.PINK_DYE, [240, 150, 180]);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;

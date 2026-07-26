@@ -11,8 +11,9 @@
 
 import {
   BLOCK, BLOCKS, ITEM, ITEMS, TILES, ATLAS_COLS, ATLAS_ROWS,
-  SMELTING, FUEL, DIMENSIONS, blockDrop,
+  SMELTING, FUEL, DIMENSIONS, blockDrop, blockModel,
   encodeEdit, decodeEditId, decodeEditMeta,
+  WOOL_BLOCKS, WOOL_RGB, breakDuration, toolSpeedTier,
 } from '../Minecraft/js/config.js';
 import {
   craftResult, craftCost, SHAPELESS, SHAPED_2, SHAPED_3,
@@ -31,9 +32,20 @@ function assert(cond, msg) {
 // ---- ID spaces ----------------------------------------------------------------
 {
   const blockIds = Object.values(BLOCK);
-  assert(blockIds.every((id) => Number.isInteger(id) && id >= 0 && id < 78),
-    'every BLOCK id is an integer < 78');
+  assert(blockIds.every((id) => Number.isInteger(id) && id >= 0 && id < 1000),
+    'every BLOCK id is an integer < 1000 (item space starts at 1000)');
   assert(new Set(blockIds).size === blockIds.length, 'BLOCK ids are unique');
+
+  // Every non-air block id has a full BLOCKS definition, and vice versa.
+  for (const [name, id] of Object.entries(BLOCK)) {
+    if (id === BLOCK.AIR) continue;
+    assert(BLOCKS[id] && typeof BLOCKS[id].name === 'string',
+      `BLOCK.${name} (${id}) has a BLOCKS definition`);
+  }
+  const blockIdSet = new Set(blockIds);
+  for (const id of Object.keys(BLOCKS)) {
+    assert(blockIdSet.has(Number(id)), `BLOCKS entry ${id} corresponds to a BLOCK id`);
+  }
 
   const itemIds = Object.values(ITEM);
   assert(itemIds.every((id) => Number.isInteger(id) && id >= 1000),
@@ -159,6 +171,87 @@ function grid(...entries) {
     assert(out && out.id === r.out.id && out.count === r.out.count,
       `SHAPED_3 recipe for ${r.out.id} resolves as written`);
   }
+}
+
+// ---- Phase 2: slabs/stairs/wool/gold/sandstone/dye recipes -------------------------
+{
+  // 3 planks in a row -> 6 oak slabs (top row and, offset, bottom row).
+  const slab = craftResult(grid([0, BLOCK.PLANK], [1, BLOCK.PLANK], [2, BLOCK.PLANK]), 3);
+  assert(slab && slab.id === BLOCK.OAK_SLAB && slab.count === 6, '3 planks -> 6 oak slabs');
+  const slabOffset = craftResult(grid([6, BLOCK.STONE], [7, BLOCK.STONE], [8, BLOCK.STONE]), 3);
+  assert(slabOffset && slabOffset.id === BLOCK.STONE_SLAB, 'offset 3 stone -> stone slabs');
+
+  // The 6-block staircase shape -> 4 stairs, and its mirror.
+  const stairs = craftResult(grid(
+    [0, BLOCK.PLANK],
+    [3, BLOCK.PLANK], [4, BLOCK.PLANK],
+    [6, BLOCK.PLANK], [7, BLOCK.PLANK], [8, BLOCK.PLANK],
+  ), 3);
+  assert(stairs && stairs.id === BLOCK.OAK_STAIRS && stairs.count === 4,
+    'staircase shape -> 4 oak stairs');
+  const stairsMirror = craftResult(grid(
+    [2, BLOCK.COBBLESTONE],
+    [4, BLOCK.COBBLESTONE], [5, BLOCK.COBBLESTONE],
+    [6, BLOCK.COBBLESTONE], [7, BLOCK.COBBLESTONE], [8, BLOCK.COBBLESTONE],
+  ), 3);
+  assert(stairsMirror && stairsMirror.id === BLOCK.COBBLESTONE_STAIRS,
+    'MIRRORED staircase shape -> cobblestone stairs');
+
+  // 2x2 sand -> sandstone.
+  const sandstone = craftResult(grid(
+    [0, BLOCK.SAND], [1, BLOCK.SAND], [3, BLOCK.SAND], [4, BLOCK.SAND],
+  ), 2);
+  assert(sandstone && sandstone.id === BLOCK.SANDSTONE, '4 sand (2x2) -> sandstone');
+
+  // Dye + white wool (shapeless, works in the 2x2 grid).
+  const redWool = craftResult(grid([0, ITEM.RED_DYE], [1, BLOCK.WOOL_WHITE]), 2);
+  assert(redWool && redWool.id === BLOCK.WOOL_RED, 'red dye + white wool -> red wool');
+
+  // Legacy wool item converts to the white wool block.
+  const legacy = craftResult(grid([0, ITEM.WOOL]), 2);
+  assert(legacy && legacy.id === BLOCK.WOOL_WHITE, 'legacy wool item -> white wool block');
+
+  // Birch wood -> birch planks; golden pickaxe resolves in the 3x3.
+  const bplank = craftResult(grid([0, BLOCK.BIRCH_WOOD]), 2);
+  assert(bplank && bplank.id === BLOCK.BIRCH_PLANK && bplank.count === 4,
+    'birch wood -> 4 birch planks');
+  const gpick = craftResult(grid(
+    [0, ITEM.GOLD_INGOT], [1, ITEM.GOLD_INGOT], [2, ITEM.GOLD_INGOT],
+    [4, ITEM.STICK], [7, ITEM.STICK],
+  ), 3);
+  assert(gpick && gpick.id === ITEM.GOLDEN_PICKAXE, 'golden pickaxe resolves in 3x3');
+
+  // Cactus smelts into green dye.
+  assert(SMELTING[BLOCK.CACTUS] && SMELTING[BLOCK.CACTUS].id === ITEM.GREEN_DYE,
+    'cactus smelts to green dye');
+
+  // Wool registry: 16 colours, each a defined block with its own palette entry.
+  assert(WOOL_BLOCKS.length === 16, '16 wool colours');
+  for (const woolId of WOOL_BLOCKS) {
+    assert(BLOCKS[woolId], `wool block ${woolId} defined`);
+    assert(Array.isArray(WOOL_RGB[woolId]) && WOOL_RGB[woolId].length === 3,
+      `wool block ${woolId} has an RGB palette entry`);
+  }
+
+  // Slab/stairs meta survives the edit encoding (facing + upside-down bits).
+  for (const meta of [0, 1, 4, 5, 6, 7]) {
+    const v = encodeEdit(BLOCK.OAK_STAIRS, meta);
+    assert(decodeEditId(v) === BLOCK.OAK_STAIRS && decodeEditMeta(v) === meta,
+      `stairs meta ${meta} roundtrips through encodeEdit`);
+  }
+  const topSlab = encodeEdit(BLOCK.STONE_SLAB, 1);
+  assert(decodeEditId(topSlab) === BLOCK.STONE_SLAB && decodeEditMeta(topSlab) === 1,
+    'top-slab meta roundtrips');
+  assert(blockModel(BLOCK.OAK_SLAB) === 'slab' && blockModel(BLOCK.OAK_STAIRS) === 'stairs',
+    'slab/stairs models registered');
+
+  // Gold tools: stone-tier capability, but faster than diamond on the right block.
+  assert(toolSpeedTier(ITEM.GOLDEN_PICKAXE) === 6 && toolSpeedTier(ITEM.IRON_PICKAXE) === 3,
+    'speedTier override (gold 6, iron falls back to tier)');
+  assert(breakDuration(BLOCK.STONE, ITEM.GOLDEN_PICKAXE) < breakDuration(BLOCK.STONE, ITEM.DIAMOND_PICKAXE),
+    'golden pickaxe mines stone faster than diamond');
+  assert(blockDrop(BLOCK.IRON_ORE, ITEM.GOLDEN_PICKAXE).length > 0,
+    'golden pickaxe (tier 2) still harvests iron ore');
 }
 
 // ---- Smelting / fuel / drops -----------------------------------------------------

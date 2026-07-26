@@ -32,6 +32,30 @@ const SHAPELESS = [
   { need: { [ITEM.GLOWSTONE_DUST]: 4 }, out: { id: BLOCK.GLOWSTONE, count: 1 } },
   // Flint and steel: iron struck on gravel (flint stand-in)
   { need: { [ITEM.IRON_INGOT]: 1, [BLOCK.GRAVEL]: 1 }, out: { id: ITEM.FLINT_AND_STEEL, count: 1 } },
+  // Wood variants: planks from logs, sticks from variant planks
+  { need: { [BLOCK.BIRCH_WOOD]: 1 }, out: { id: BLOCK.BIRCH_PLANK, count: 4 } },
+  { need: { [BLOCK.SPRUCE_WOOD]: 1 }, out: { id: BLOCK.SPRUCE_PLANK, count: 4 } },
+  { need: { [BLOCK.BIRCH_PLANK]: 2 }, out: { id: ITEM.STICK, count: 4 } },
+  { need: { [BLOCK.SPRUCE_PLANK]: 2 }, out: { id: ITEM.STICK, count: 4 } },
+  // Sugar cane -> sugar
+  { need: { [BLOCK.SUGAR_CANE]: 1 }, out: { id: ITEM.SUGAR, count: 1 } },
+  // Golden carrot: 1 gold ingot + carrot (no gold nuggets yet)
+  { need: { [ITEM.GOLD_INGOT]: 1, [ITEM.CARROT]: 1 }, out: { id: ITEM.GOLDEN_CARROT, count: 1 } },
+  // Dyes from flowers + mixes (green comes from smelting cactus)
+  { need: { [BLOCK.FLOWER_RED]: 1 }, out: { id: ITEM.RED_DYE, count: 1 } },
+  { need: { [BLOCK.FLOWER_YELLOW]: 1 }, out: { id: ITEM.YELLOW_DYE, count: 1 } },
+  { need: { [ITEM.RED_DYE]: 1, [ITEM.YELLOW_DYE]: 1 }, out: { id: ITEM.ORANGE_DYE, count: 2 } },
+  { need: { [ITEM.GREEN_DYE]: 1, [ITEM.BONE_MEAL]: 1 }, out: { id: ITEM.LIME_DYE, count: 2 } },
+  { need: { [ITEM.RED_DYE]: 1, [ITEM.BONE_MEAL]: 1 }, out: { id: ITEM.PINK_DYE, count: 2 } },
+  // Dye + white wool -> coloured wool (the other 9 colours await later dye sources)
+  { need: { [ITEM.RED_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_RED, count: 1 } },
+  { need: { [ITEM.YELLOW_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_YELLOW, count: 1 } },
+  { need: { [ITEM.GREEN_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_GREEN, count: 1 } },
+  { need: { [ITEM.ORANGE_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_ORANGE, count: 1 } },
+  { need: { [ITEM.LIME_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_LIME, count: 1 } },
+  { need: { [ITEM.PINK_DYE]: 1, [BLOCK.WOOL_WHITE]: 1 }, out: { id: BLOCK.WOOL_PINK, count: 1 } },
+  // Legacy wool item (pre-Phase-2 sheep drops) converts 1:1 into white wool
+  { need: { [ITEM.WOOL]: 1 }, out: { id: BLOCK.WOOL_WHITE, count: 1 } },
 ];
 
 // Inventory 2x2 recipes. `shape` is [top-left, top-right, bottom-left, bottom-right].
@@ -47,6 +71,8 @@ const SHAPED_2 = [
   { shape: [BLOCK.STONE, null, ITEM.STICK, null], out: { id: ITEM.STONE_SHOVEL, count: 1 } },
   // Pressure plate: two stone side by side
   { shape: [BLOCK.STONE, BLOCK.STONE, null, null], out: { id: BLOCK.PRESSURE_PLATE, count: 1 } },
+  // Sandstone: 4 sand in a square
+  { shape: [BLOCK.SAND, BLOCK.SAND, BLOCK.SAND, BLOCK.SAND], out: { id: BLOCK.SANDSTONE, count: 1 } },
 ];
 
 // Crafting table 3x3 recipes. `shape` is row-major, null means the cell must be empty.
@@ -125,6 +151,39 @@ const SHAPED_3 = [
   { shape: [ITEM.BLAZE_ROD, BLOCK.OBSIDIAN, ITEM.BLAZE_ROD, BLOCK.OBSIDIAN, ITEM.DIAMOND, BLOCK.OBSIDIAN, ITEM.BLAZE_ROD, BLOCK.OBSIDIAN, ITEM.BLAZE_ROD], out: { id: ITEM.BOSS_SIGIL, count: 1 } },
   // Golden apple: apple wrapped in gold
   { shape: [ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.APPLE, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT], out: { id: ITEM.GOLDEN_APPLE, count: 1 } },
+  // Gold tools (mirror the iron shapes)
+  { shape: [ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, null, ITEM.STICK, null, null, ITEM.STICK, null], out: { id: ITEM.GOLDEN_PICKAXE, count: 1 } },
+  { shape: [ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, null, ITEM.GOLD_INGOT, ITEM.STICK, null, null, ITEM.STICK, null], out: { id: ITEM.GOLDEN_AXE, count: 1 } },
+  { shape: [null, ITEM.GOLD_INGOT, null, null, ITEM.STICK, null, null, ITEM.STICK, null], out: { id: ITEM.GOLDEN_SHOVEL, count: 1 } },
+  { shape: [null, ITEM.GOLD_INGOT, null, null, ITEM.GOLD_INGOT, null, null, ITEM.STICK, null], out: { id: ITEM.GOLDEN_SWORD, count: 1 } },
+  { shape: [ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, null, null, ITEM.STICK, null, null, ITEM.STICK, null], out: { id: ITEM.GOLDEN_HOE, count: 1 } },
+  // Gold armor (mirror the iron shapes)
+  { shape: [ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, null, ITEM.GOLD_INGOT, null, null, null], out: { id: ITEM.GOLDEN_HELMET, count: 1 } },
+  { shape: [ITEM.GOLD_INGOT, null, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT], out: { id: ITEM.GOLDEN_CHEST, count: 1 } },
+  { shape: [ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, null, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, null, ITEM.GOLD_INGOT], out: { id: ITEM.GOLDEN_LEGS, count: 1 } },
+  { shape: [null, null, null, ITEM.GOLD_INGOT, null, ITEM.GOLD_INGOT, ITEM.GOLD_INGOT, null, ITEM.GOLD_INGOT], out: { id: ITEM.GOLDEN_BOOTS, count: 1 } },
+  // Wood-variant fences
+  { shape: [BLOCK.BIRCH_PLANK, ITEM.STICK, BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK, ITEM.STICK, BLOCK.BIRCH_PLANK, null, null, null], out: { id: BLOCK.BIRCH_FENCE, count: 6 } },
+  { shape: [BLOCK.SPRUCE_PLANK, ITEM.STICK, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, ITEM.STICK, BLOCK.SPRUCE_PLANK, null, null, null], out: { id: BLOCK.SPRUCE_FENCE, count: 6 } },
+  // Slabs: 3 of the material in a row -> 6 slabs
+  { shape: [BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, null, null, null, null, null, null], out: { id: BLOCK.OAK_SLAB, count: 6 } },
+  { shape: [BLOCK.STONE, BLOCK.STONE, BLOCK.STONE, null, null, null, null, null, null], out: { id: BLOCK.STONE_SLAB, count: 6 } },
+  { shape: [BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, null, null, null, null, null, null], out: { id: BLOCK.COBBLESTONE_SLAB, count: 6 } },
+  { shape: [BLOCK.BRICK, BLOCK.BRICK, BLOCK.BRICK, null, null, null, null, null, null], out: { id: BLOCK.BRICK_SLAB, count: 6 } },
+  { shape: [BLOCK.STONE_BRICK, BLOCK.STONE_BRICK, BLOCK.STONE_BRICK, null, null, null, null, null, null], out: { id: BLOCK.STONE_BRICK_SLAB, count: 6 } },
+  { shape: [BLOCK.SANDSTONE, BLOCK.SANDSTONE, BLOCK.SANDSTONE, null, null, null, null, null, null], out: { id: BLOCK.SANDSTONE_SLAB, count: 6 } },
+  { shape: [BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK, null, null, null, null, null, null], out: { id: BLOCK.BIRCH_SLAB, count: 6 } },
+  { shape: [BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, null, null, null, null, null, null], out: { id: BLOCK.SPRUCE_SLAB, count: 6 } },
+  // Stairs: the 6-block staircase (mirror matches the other orientation)
+  { shape: [BLOCK.PLANK, null, null, BLOCK.PLANK, BLOCK.PLANK, null, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK], out: { id: BLOCK.OAK_STAIRS, count: 4 } },
+  { shape: [BLOCK.COBBLESTONE, null, null, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, null, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE], out: { id: BLOCK.COBBLESTONE_STAIRS, count: 4 } },
+  { shape: [BLOCK.BRICK, null, null, BLOCK.BRICK, BLOCK.BRICK, null, BLOCK.BRICK, BLOCK.BRICK, BLOCK.BRICK], out: { id: BLOCK.BRICK_STAIRS, count: 4 } },
+  { shape: [BLOCK.STONE_BRICK, null, null, BLOCK.STONE_BRICK, BLOCK.STONE_BRICK, null, BLOCK.STONE_BRICK, BLOCK.STONE_BRICK, BLOCK.STONE_BRICK], out: { id: BLOCK.STONE_BRICK_STAIRS, count: 4 } },
+  { shape: [BLOCK.SANDSTONE, null, null, BLOCK.SANDSTONE, BLOCK.SANDSTONE, null, BLOCK.SANDSTONE, BLOCK.SANDSTONE, BLOCK.SANDSTONE], out: { id: BLOCK.SANDSTONE_STAIRS, count: 4 } },
+  { shape: [BLOCK.BIRCH_PLANK, null, null, BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK, null, BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK], out: { id: BLOCK.BIRCH_STAIRS, count: 4 } },
+  { shape: [BLOCK.SPRUCE_PLANK, null, null, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, null, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK], out: { id: BLOCK.SPRUCE_STAIRS, count: 4 } },
+  // Bed also accepts the white wool BLOCK (the ITEM.WOOL recipe above is legacy)
+  { shape: [BLOCK.PLANK, BLOCK.WOOL_WHITE, BLOCK.WOOL_WHITE, BLOCK.PLANK, BLOCK.WOOL_WHITE, BLOCK.WOOL_WHITE, BLOCK.PLANK, null, null], out: { id: ITEM.BED, count: 1 } },
 ];
 
 function activeSlots(grid, size) {

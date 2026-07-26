@@ -2,7 +2,7 @@
 // minimap.js — Top-down 2D minimap showing surrounding terrain.
 // =============================================================================
 
-import { BLOCK, SEA_LEVEL } from './config.js';
+import { BLOCK, SEA_LEVEL, WOOL_BLOCKS, WOOL_RGB } from './config.js';
 
 const SIZE = 120;
 const RANGE = 64;
@@ -44,7 +44,35 @@ const BLOCK_COLORS = {
   [BLOCK.REDSTONE_LAMP_ON]: [232, 178, 72],
   [BLOCK.PISTON]: [140, 120, 90],
   [BLOCK.FARMLAND]: [110, 70, 40],
+  // Phase 2: slabs/stairs use their base material colour.
+  [BLOCK.OAK_SLAB]: [178, 138, 86],
+  [BLOCK.STONE_SLAB]: [128, 128, 132],
+  [BLOCK.COBBLESTONE_SLAB]: [110, 110, 114],
+  [BLOCK.BRICK_SLAB]: [155, 75, 60],
+  [BLOCK.STONE_BRICK_SLAB]: [120, 120, 124],
+  [BLOCK.SANDSTONE_SLAB]: [222, 206, 156],
+  [BLOCK.BIRCH_SLAB]: [214, 196, 150],
+  [BLOCK.SPRUCE_SLAB]: [122, 86, 52],
+  [BLOCK.OAK_STAIRS]: [178, 138, 86],
+  [BLOCK.COBBLESTONE_STAIRS]: [110, 110, 114],
+  [BLOCK.BRICK_STAIRS]: [155, 75, 60],
+  [BLOCK.STONE_BRICK_STAIRS]: [120, 120, 124],
+  [BLOCK.SANDSTONE_STAIRS]: [222, 206, 156],
+  [BLOCK.BIRCH_STAIRS]: [214, 196, 150],
+  [BLOCK.SPRUCE_STAIRS]: [122, 86, 52],
+  [BLOCK.BIRCH_WOOD]: [208, 204, 192],
+  [BLOCK.BIRCH_PLANK]: [214, 196, 150],
+  [BLOCK.BIRCH_LEAVES]: [92, 160, 70],
+  [BLOCK.SPRUCE_WOOD]: [72, 50, 30],
+  [BLOCK.SPRUCE_PLANK]: [122, 86, 52],
+  [BLOCK.SPRUCE_LEAVES]: [40, 84, 60],
+  [BLOCK.BIRCH_FENCE]: [214, 196, 150],
+  [BLOCK.SPRUCE_FENCE]: [122, 86, 52],
+  [BLOCK.SANDSTONE]: [222, 206, 156],
+  [BLOCK.SUGAR_CANE]: [140, 190, 96],
 };
+// All 16 wool colours share the registry palette.
+for (const woolId of WOOL_BLOCKS) BLOCK_COLORS[woolId] = WOOL_RGB[woolId];
 
 export class Minimap {
   constructor(container) {

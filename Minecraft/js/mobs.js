@@ -576,7 +576,8 @@ export class MobManager {
         return drops;
       }
       case 'sheep': {
-        const drops = [{ id: ITEM.WOOL, count: 1 }];
+        // Sheep drop the white wool BLOCK (ITEM.WOOL remains a legacy alias).
+        const drops = [{ id: BLOCK.WOOL_WHITE, count: 1 }];
         if (Math.random() < 0.3) drops.push({ id: ITEM.RAW_BEEF, count: 1 });
         return drops;
       }

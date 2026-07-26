@@ -96,8 +96,12 @@ function getOpaqueMaterial(atlas) {
         .replace(
           '#include <map_fragment>',
           `#ifdef USE_MAP
-             float tcol = mod(vTile, uAtlasCols);
-             float trow = floor(vTile / uAtlasCols);
+             // Round the interpolated tile index: precision wobble in the
+             // varying (e.g. 184.0 arriving as 183.9999) would otherwise flip
+             // mod/floor into the NEIGHBOURING tile on some fragments.
+             float tIdx = floor(vTile + 0.5);
+             float tcol = mod(tIdx, uAtlasCols);
+             float trow = floor(tIdx / uAtlasCols);
              // fract() tiles the texture across a multi-block greedy quad; the
              // tiny inset keeps NearestFilter from bleeding into neighbour tiles.
              vec2 cell = fract(vMapUv);
@@ -348,22 +352,28 @@ export class Chunk {
       const l = lightAt(ox + x, y, oz + z);
       return [l.block / 15, l.sky / 15];
     };
-    // Push an axis-aligned box (all 6 faces) into the opaque buffer.
-    const pushBoxOp = (x0, y0, z0, x1, y1, z1, boxTile, rg) => {
+    // Push an axis-aligned box (all 6 faces) into the opaque buffer. `sideV`
+    // optionally narrows the vertical texture range of the four SIDE faces
+    // ([v0, v1] in 0..1) so half-height boxes (slabs, stair steps) sample half
+    // the tile instead of stretching it; top/bottom faces keep the full tile.
+    const pushBoxOp = (x0, y0, z0, x1, y1, z1, boxTile, rg, sideV = null) => {
       const boxFaces = [
         [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], [0, 0, -1]],
         [[x1, y0, z1], [x0, y0, z1], [x0, y1, z1], [x1, y1, z1], [0, 0, 1]],
         [[x0, y0, z1], [x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [-1, 0, 0]],
         [[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], [1, 0, 0]],
-        [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], [0, 1, 0]],
-        [[x0, y0, z1], [x1, y0, z1], [x1, y0, z0], [x0, y0, z0], [0, -1, 0]],
+        [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0]],
+        [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0]],
       ];
-      for (const bf of boxFaces) {
+      for (let bi = 0; bi < boxFaces.length; bi++) {
+        const bf = boxFaces[bi];
         const n = bf[4];
+        const v0 = sideV && bi < 4 ? sideV[0] : 0;
+        const v1 = sideV && bi < 4 ? sideV[1] : 1;
         for (let c = 0; c < 4; c++) {
           op.positions.push(bf[c][0], bf[c][1], bf[c][2]);
           op.normals.push(n[0], n[1], n[2]);
-          op.uvs.push(c === 0 || c === 3 ? 0 : 1, c < 2 ? 0 : 1);
+          op.uvs.push(c === 0 || c === 3 ? 0 : 1, c < 2 ? v0 : v1);
           op.tiles.push(boxTile);
           op.colors.push(rg[0], rg[1], 1);
         }
@@ -563,6 +573,36 @@ export class Chunk {
                 : [[x, yb, z], [x + 1, yb, z], [x + 1, yb, z + 1], [x, yb, z + 1]];
               pushQuadOp(verts, [0, 1, 0], faceTile(id, 'top'), rg);
             }
+          } else if (model === 'slab') {
+            // Half-height box; meta bit0 picks the half (0 bottom, 1 top).
+            const rg = cellLightRG(x, y, z);
+            const meta = this.meta[localIndex(x, y, z)];
+            const top = (meta & 1) === 1;
+            pushBoxOp(
+              x, top ? y + 0.5 : y, z, x + 1, top ? y + 1 : y + 0.5, z + 1,
+              tile, rg, top ? [0, 0.5] : [0.5, 1],
+            );
+          } else if (model === 'stairs') {
+            // Two boxes: a full-footprint half slab + a half-depth riser
+            // against the facing direction. Meta bits0-1 = facing
+            // (0=+X, 1=+Z, 2=-X, 3=-Z), bit2 = upside-down (both boxes flip).
+            const rg = cellLightRG(x, y, z);
+            const meta = this.meta[localIndex(x, y, z)];
+            const facing = meta & 3;
+            const flip = (meta & 4) !== 0;
+            pushBoxOp(
+              x, flip ? y + 0.5 : y, z, x + 1, flip ? y + 1 : y + 0.5, z + 1,
+              tile, rg, flip ? [0, 0.5] : [0.5, 1],
+            );
+            let bx0 = x, bx1 = x + 1, bz0 = z, bz1 = z + 1;
+            if (facing === 0) bx0 = x + 0.5;
+            else if (facing === 1) bz0 = z + 0.5;
+            else if (facing === 2) bx1 = x + 0.5;
+            else bz1 = z + 0.5;
+            pushBoxOp(
+              bx0, flip ? y : y + 0.5, bz0, bx1, flip ? y + 0.5 : y + 1, bz1,
+              tile, rg, flip ? [0.5, 1] : [0, 0.5],
+            );
           } else if (model === 'plate') {
             // Thin 1/16 plate, 14/16 wide, centred (pressure plate, repeater).
             const rg = cellLightRG(x, y, z);

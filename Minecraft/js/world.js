@@ -121,7 +121,8 @@ export class World {
       for (let z = 0; z < CHUNK_SIZE; z++) {
         const wx = ox + x, wz = oz + z;
         let h = this.columnHeight(wx, wz);
-        const def = BIOMES[this.biomeAt(wx, wz)];
+        const biome = this.biomeAt(wx, wz);
+        const def = BIOMES[biome];
         const isRiver = h > SEA_LEVEL && this.riverAt(wx, wz);
 
         if (isRiver) {
@@ -157,6 +158,12 @@ export class World {
         if (h > SAND_LEVEL && def.treeChance > 0 && this.hash01(wx, wz) < def.treeChance) {
           if (def.tallTree) {
             this.plantJungleTree(chunk, x, z, h);
+          } else if (biome === BIOME.SNOW) {
+            // Snowy forests grow conical spruces.
+            this.plantSpruceTree(chunk, x, z, h);
+          } else if (biome === BIOME.FOREST && this.hash01_3(wx, h, wz, 379) < 0.25) {
+            // A quarter of forest trees are birches.
+            this.plantTree(chunk, x, z, h, BLOCK.BIRCH_WOOD, BLOCK.BIRCH_LEAVES);
           } else {
             this.plantTree(chunk, x, z, h);
           }
@@ -181,6 +188,25 @@ export class World {
             chunk.setBlockLocal(x, h + 1, z, BLOCK.FLOWER_RED);
           } else if (floral > (0.955 - flowerBoost * 0.5)) {
             chunk.setBlockLocal(x, h + 1, z, BLOCK.FLOWER_YELLOW);
+          }
+        }
+
+        // Sugar cane on shorelines: a dry column exactly at sea level whose
+        // support has water in an adjacent column grows a 2-3 tall stack.
+        // (Water fills [neighbourH+1 .. SEA_LEVEL], so a neighbour lower than
+        // this column guarantees water right beside the cane's base block.)
+        if (h === SEA_LEVEL && this.hash01_3(wx, h, wz, 353) < 0.08 &&
+            chunk.getBlockLocal(x, h, z) === BLOCK.SAND) {  // skip gravel/clay patches
+          const lower = (nx, nz) => {
+            const nh = this.columnHeight(nx, nz);
+            const nEff = (nh > SEA_LEVEL && this.riverAt(nx, nz)) ? Math.min(nh, SEA_LEVEL - 1) : nh;
+            return nEff < SEA_LEVEL;
+          };
+          if (lower(wx + 1, wz) || lower(wx - 1, wz) || lower(wx, wz + 1) || lower(wx, wz - 1)) {
+            const canes = 2 + (this.hash01_3(wx, h, wz, 359) < 0.4 ? 1 : 0);
+            for (let i = 1; i <= canes && h + i < CHUNK_HEIGHT; i++) {
+              chunk.setBlockLocal(x, h + i, z, BLOCK.SUGAR_CANE);
+            }
           }
         }
       }
@@ -325,8 +351,9 @@ export class World {
 
   // Trunk + canopy. Works in WORLD coordinates and routes every block through
   // placeTreeVoxel(), so a canopy that crosses a chunk border is written into
-  // the neighbour (or queued for it) instead of being clipped.
-  plantTree(chunk, lx, lz, surfaceY) {
+  // the neighbour (or queued for it) instead of being clipped. `woodId` /
+  // `leafId` select the material (oak by default, birch in forests).
+  plantTree(chunk, lx, lz, surfaceY, woodId = BLOCK.WOOD, leafId = BLOCK.LEAVES) {
     const wx = chunk.cx * CHUNK_SIZE + lx;
     const wz = chunk.cz * CHUNK_SIZE + lz;
     const trunk = 4 + Math.floor(this.hash01(wx + 7, wz + 13) * 2); // 4-5
@@ -334,7 +361,7 @@ export class World {
     if (topY + 2 >= CHUNK_HEIGHT) return;
 
     this.placeTreeVoxel(chunk, wx, surfaceY, wz, BLOCK.DIRT, false); // grass -> dirt under trunk
-    for (let i = 1; i <= trunk; i++) this.placeTreeVoxel(chunk, wx, surfaceY + i, wz, BLOCK.WOOD, false);
+    for (let i = 1; i <= trunk; i++) this.placeTreeVoxel(chunk, wx, surfaceY + i, wz, woodId, false);
 
     // Three canopy layers (wider lower, narrower top), corners rounded off.
     for (let dy = -1; dy <= 1; dy++) {
@@ -344,11 +371,38 @@ export class World {
         for (let dz = -rad; dz <= rad; dz++) {
           if (dx === 0 && dz === 0 && dy < 1) continue;                 // keep trunk clear
           if (Math.abs(dx) === rad && Math.abs(dz) === rad) continue;   // round corners
-          this.placeTreeVoxel(chunk, wx + dx, ly, wz + dz, BLOCK.LEAVES, true);
+          this.placeTreeVoxel(chunk, wx + dx, ly, wz + dz, leafId, true);
         }
       }
     }
-    this.placeTreeVoxel(chunk, wx, topY + 1, wz, BLOCK.LEAVES, true); // crown
+    this.placeTreeVoxel(chunk, wx, topY + 1, wz, leafId, true); // crown
+  }
+
+  // Conical spruce for the snow biome: taller trunk, narrow leaf rings that
+  // alternate radius 1/2 down the trunk, with a small pointed crown.
+  plantSpruceTree(chunk, lx, lz, surfaceY) {
+    const wx = chunk.cx * CHUNK_SIZE + lx;
+    const wz = chunk.cz * CHUNK_SIZE + lz;
+    const trunk = 6 + Math.floor(this.hash01(wx + 11, wz + 17) * 2); // 6-7
+    const topY = surfaceY + trunk;
+    if (topY + 2 >= CHUNK_HEIGHT) return;
+
+    this.placeTreeVoxel(chunk, wx, surfaceY, wz, BLOCK.DIRT, false);
+    for (let i = 1; i <= trunk; i++) this.placeTreeVoxel(chunk, wx, surfaceY + i, wz, BLOCK.SPRUCE_WOOD, false);
+
+    for (let dy = 0; dy <= trunk - 3; dy++) {
+      const ly = topY - dy;
+      const rad = dy === 0 ? 1 : (dy % 2 === 1 ? 2 : 1);
+      for (let dx = -rad; dx <= rad; dx++) {
+        for (let dz = -rad; dz <= rad; dz++) {
+          if (dx === 0 && dz === 0) continue;                           // trunk stays visible
+          if (Math.abs(dx) === rad && Math.abs(dz) === rad) continue;   // round corners
+          this.placeTreeVoxel(chunk, wx + dx, ly, wz + dz, BLOCK.SPRUCE_LEAVES, true);
+        }
+      }
+    }
+    this.placeTreeVoxel(chunk, wx, topY + 1, wz, BLOCK.SPRUCE_LEAVES, true);
+    this.placeTreeVoxel(chunk, wx, topY + 2, wz, BLOCK.SPRUCE_LEAVES, true); // pointed crown
   }
 
   plantCactus(chunk, lx, lz, surfaceY) {

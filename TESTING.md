@@ -88,3 +88,65 @@ Mobs:
       no chasing, no arrows, no creeper fuse, and the boss never attacks.
 - [ ] Wolves can still be tamed (bone not consumed) and animals still breed.
 - [ ] Back in survival, hostiles resume targeting you.
+
+## Phase 2 — Building blocks breadth (no save-shape change, still v9)
+
+Slabs & stairs (meta-based geometry):
+- [ ] Place a slab on the ground (click the top of a block) → bottom half-slab.
+      Click the UNDERSIDE of a block → top half-slab. Click the upper half of a
+      side face → top half-slab; lower half → bottom.
+- [ ] Place stairs while facing each of the four compass directions → the step
+      rises away from you each time. Place them on a ceiling underside → the
+      stairs are upside-down.
+- [ ] Slab/stair side textures are not vertically stretched (half-tile V).
+- [ ] Reload the page: every slab/stair keeps its half/facing (meta persists
+      through the edit encoding).
+- [ ] Breaking any slab/stair variant drops the base item regardless of meta.
+- [ ] Walking on slabs behaves like a full block (known approximation:
+      collision is a full box, player.js only knows isSolid).
+- [ ] Pistons treat slabs/stairs/fences as unpushable (non-cube models block
+      pushes — unchanged generic path; UNPUSHABLE list untouched).
+
+Wood variants & sandstone:
+- [ ] Forest biomes contain ~25% birch trees (pale bark, light leaves); snow
+      biomes grow conical spruces; jungle unchanged. Canopies still cross chunk
+      borders without clipping.
+- [ ] Birch/spruce wood → 4 planks; planks → sticks; fences/slabs/stairs craft
+      from the matching planks; all burn as furnace fuel.
+- [ ] 4 sand (2x2) → sandstone; sandstone slab/stairs craft from it.
+- [ ] Desert cactus smelts into green dye.
+
+Wool & dyes:
+- [ ] Creative picker filter "wool" lists 16 colours; all place and break fine.
+- [ ] Sheep drop the white wool BLOCK; an old save's legacy Wool ITEM still
+      places white wool and converts 1:1 in the crafting grid.
+- [ ] Red/yellow flowers → dyes; red+yellow → orange, green+bone meal → lime,
+      red+bone meal → pink; each dye + white wool → coloured wool (6 colours
+      craftable in survival; the other 9 are creative-only until later dye
+      sources arrive).
+- [ ] Bed crafts from planks + white wool blocks AND from legacy wool items.
+
+Gold gear & food:
+- [ ] Golden tools craft from gold ingots (iron shapes), mine at stone-tier
+      capability but visibly faster than diamond on the right block, and break
+      after ~32 uses.
+- [ ] Golden armor equips in all four slots (2/5/3/1 points).
+- [ ] Golden carrot (1 gold ingot + carrot) restores 6 hunger.
+
+Sugar cane:
+- [ ] Shorelines at sea level occasionally carry 2-3 tall cane stacks.
+- [ ] Cane only places on sand/dirt/grass with water beside the support block
+      (a status message explains a refused placement); stacks cap at 3.
+- [ ] Player-planted cane slowly grows to 3 tall (~2%/s per segment).
+- [ ] Breaking a cane segment (or its support) pops every segment above; each
+      drops a cane item. 1 cane → 1 sugar.
+
+Recipe list UI:
+- [ ] The RECIPES panel in the survival inventory is generated from the real
+      recipe tables (icons + ingredient summaries), grouped 2x2 vs 3x3, and
+      scrolls within the panel. No hand-written entries remain in index.html.
+
+Debug handle:
+- [ ] Loading with `?debug=1` exposes `window.__game` (world getter, player,
+      inventory, BLOCK/ITEM, setBlock) for automated browser checks; without
+      the param it is undefined.

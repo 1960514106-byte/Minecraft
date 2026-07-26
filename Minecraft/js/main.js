@@ -18,7 +18,7 @@ import { Feedback } from './feedback.js';
 import { MobManager } from './mobs.js';
 import { FurnaceManager } from './furnace.js';
 import { ChestManager, CHEST_SLOTS } from './chest.js';
-import { craftResult, craftCost } from './crafting.js';
+import { craftResult, craftCost, SHAPELESS, SHAPED_2, SHAPED_3 } from './crafting.js';
 import { AchievementManager } from './achievements.js';
 import { Minimap } from './minimap.js';
 import { Weather } from './weather.js';
@@ -34,9 +34,9 @@ import {
   breakDuration, itemStackMax, armorPoints, armorSlotOf, fuelValue, smeltResult, SMELT_TIME,
   BLOCK, ITEM, BLOCKS, ITEMS, WORLD_SEED, ATLAS_COLS, ATLAS_ROWS,
   HOTBAR_SIZE, INVENTORY_SIZE, APPLE_DROP_CHANCE,
-  SEED_DROP_CHANCE, WHEAT_GROW_CHANCE, toolKind, nextCropStage, isCropBlock,
+  SEED_DROP_CHANCE, WHEAT_GROW_CHANCE, CANE_GROW_CHANCE, toolKind, nextCropStage, isCropBlock,
   itemMaxDurability, placeableBlock, isClimbable, isSolid, isRail, stackEnchant,
-  xpFromMining, xpFromKill, isEnchantable, ENCHANTMENTS, decodeEditId,
+  xpFromMining, xpFromKill, isEnchantable, ENCHANTMENTS, decodeEditId, blockModel,
 } from './config.js';
 
 // ---- Renderer ---------------------------------------------------------------
@@ -799,6 +799,11 @@ function breakBlock(hit, toolId = null) {
       for (const d of blockDrop(above)) drops.spawn(d.id, d.count, cropPos);
     }
   }
+  // Sugar cane: breaking a segment (or its support block) pops every segment above.
+  for (let caneY = hit.y + 1; world.getBlock(hit.x, caneY, hit.z) === BLOCK.SUGAR_CANE; caneY++) {
+    world.setBlock(hit.x, caneY, hit.z, BLOCK.AIR);
+    if (!creative) drops.spawn(BLOCK.SUGAR_CANE, 1, new THREE.Vector3(hit.x + 0.5, caneY + 0.55, hit.z + 0.5));
+  }
   if (id === BLOCK.FURNACE || id === BLOCK.FURNACE_LIT) {
     for (const d of furnaces.remove(dimKey(hit.x, hit.y, hit.z))) drops.spawn(d.id, d.count, dropPos);
   }
@@ -1246,8 +1251,49 @@ renderer.domElement.addEventListener('mousedown', (e) => {
          blockId === BLOCK.REPEATER) && !isSolid(world.getBlock(px, py - 1, pz))) {
       return;
     }
+    // Sugar cane: needs sand/dirt/grass below (or stacks on cane, max 3) and
+    // water horizontally adjacent to the supporting block.
+    if (blockId === BLOCK.SUGAR_CANE) {
+      const below = world.getBlock(px, py - 1, pz);
+      let caneOk = false;
+      if (below === BLOCK.SUGAR_CANE) {
+        let height = 1;
+        while (world.getBlock(px, py - 1 - height, pz) === BLOCK.SUGAR_CANE) height++;
+        caneOk = height < 3;
+      } else if (below === BLOCK.SAND || below === BLOCK.DIRT || below === BLOCK.GRASS) {
+        caneOk = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(
+          ([dx, dz]) => world.getBlock(px + dx, py - 1, pz + dz) === BLOCK.WATER,
+        );
+      }
+      if (!caneOk) {
+        survival._setMessage('Sugar cane needs sand/dirt beside water');
+        return;
+      }
+    }
+    // Slabs and stairs keep their orientation in per-voxel meta.
+    let placeMeta = 0;
+    const placeModel = blockModel(blockId);
+    if (placeModel === 'slab' || placeModel === 'stairs') {
+      camera.getWorldPosition(_origin);
+      camera.getWorldDirection(_dir);
+      // Clicking a block's bottom face (or the upper half of a side face)
+      // yields the top-slab / upside-down variant. The raycast hit point is
+      // origin + dir * distance; its fractional Y inside the hit cell tells
+      // which half of a side face was clicked.
+      const hitFracY = _origin.y + _dir.y * hit.distance - hit.y;
+      const upper = hit.ny === -1 || (hit.ny === 0 && hitFracY > 0.5);
+      if (placeModel === 'slab') {
+        placeMeta = upper ? 1 : 0;
+      } else {
+        // Stairs ascend away from the player: facing follows the camera yaw.
+        const facing = Math.abs(_dir.x) >= Math.abs(_dir.z)
+          ? (_dir.x >= 0 ? 0 : 2)
+          : (_dir.z >= 0 ? 1 : 3);
+        placeMeta = facing | (upper ? 4 : 0);
+      }
+    }
     if (!intersectsPlayer(px, py, pz)) {
-      world.setBlock(px, py, pz, blockId);
+      world.setBlock(px, py, pz, blockId, placeMeta);
       // Place paired blocks (door top, bed head)
       if (blockId === BLOCK.DOOR_BOTTOM) {
         world.setBlock(px, py + 1, pz, BLOCK.DOOR_TOP);
@@ -1748,6 +1794,70 @@ function rebuildCreativeGrid() {
 }
 
 creativeFilterEl.addEventListener('input', rebuildCreativeGrid);
+
+// ---- Data-driven recipe list ---------------------------------------------------
+// The RECIPES panel is generated from the crafting.js tables at startup, so the
+// list can never drift from the real recipes again. Grouped by where a recipe
+// fits: anything needing at most 4 items works in the 2x2 grid, the rest needs
+// a crafting table.
+function shapeCostOf(shape) {
+  const cost = {};
+  for (const id of shape) {
+    if (id != null) cost[id] = (cost[id] || 0) + 1;
+  }
+  return cost;
+}
+
+function recipeEntry(out, cost) {
+  const div = document.createElement('div');
+  div.className = 'recipeEntry';
+  if (out.count > 1) div.append(`${out.count}× `);
+  const icon = document.createElement('span');
+  icon.className = 'ric';
+  iconStyle(icon, out.id, 16);
+  div.appendChild(icon);
+  const parts = Object.entries(cost)
+    .map(([id, n]) => `${n} ${itemDef(Number(id)).name}`)
+    .join(' + ');
+  div.append(`${itemDef(out.id).name} ← ${parts}`);
+  return div;
+}
+
+function buildRecipeList() {
+  recipeListEl.innerHTML = '';
+  const header = (label) => {
+    const h = document.createElement('div');
+    h.className = 'rhead';
+    h.textContent = label;
+    recipeListEl.appendChild(h);
+  };
+  const totalOf = (cost) => Object.values(cost).reduce((a, b) => a + b, 0);
+  const small = [];   // fits the 2x2 inventory grid
+  const large = [];   // needs the crafting table
+  for (const r of SHAPELESS) (totalOf(r.need) <= 4 ? small : large).push([r.out, r.need]);
+  for (const r of SHAPED_2) small.push([r.out, shapeCostOf(r.shape)]);
+  for (const r of SHAPED_3) large.push([r.out, shapeCostOf(r.shape)]);
+  header('2x2 GRID');
+  for (const [out, cost] of small) recipeListEl.appendChild(recipeEntry(out, cost));
+  header('CRAFTING TABLE (3x3)');
+  for (const [out, cost] of large) recipeListEl.appendChild(recipeEntry(out, cost));
+}
+buildRecipeList();
+
+// ---- Debug handle ----------------------------------------------------------------
+// With ?debug=1 the page exposes the live world/player for automated browser
+// checks (Playwright) and manual console poking. `world` rebinds on dimension
+// travel, hence the getter.
+if (new URLSearchParams(location.search).has('debug')) {
+  window.__game = {
+    get world() { return world; },
+    player,
+    inventory,
+    BLOCK,
+    ITEM,
+    setBlock: (x, y, z, id, meta = 0) => world.setBlock(x, y, z, id, meta),
+  };
+}
 
 // Show the crafting UI (survival) or the item picker (creative). In creative
 // the picker also replaces the crafting-table screen: everything is free, so
@@ -2707,11 +2817,27 @@ function animate() {
     const grow = [];
     for (const [ck, inner] of world.edits) {
       for (const [lk, v] of inner) {
-        const next = nextCropStage(decodeEditId(v));
+        const editId = decodeEditId(v);
+        const next = nextCropStage(editId);
         if (next && Math.random() < WHEAT_GROW_CHANCE) {
           const [cx, cz] = ck.split(',').map(Number);
           const [lx, y, lz] = lk.split(',').map(Number);
           grow.push({ x: cx * 16 + lx, y, z: cz * 16 + lz, id: next });
+        } else if (editId === BLOCK.SUGAR_CANE && Math.random() < CANE_GROW_CHANCE) {
+          // Player-planted cane grows a segment: air above, under 3 tall,
+          // water still adjacent to the supporting block.
+          const [cx, cz] = ck.split(',').map(Number);
+          const [lx, y, lz] = lk.split(',').map(Number);
+          const x = cx * 16 + lx, z = cz * 16 + lz;
+          if (world.getBlock(x, y + 1, z) !== BLOCK.AIR) continue;
+          let height = 1;
+          while (height < 3 && world.getBlock(x, y - height, z) === BLOCK.SUGAR_CANE) height++;
+          if (height >= 3) continue;
+          const baseY = y - height;   // the supporting block under the stack
+          const wet = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(
+            ([dx, dz]) => world.getBlock(x + dx, baseY, z + dz) === BLOCK.WATER,
+          );
+          if (wet) grow.push({ x, y: y + 1, z, id: BLOCK.SUGAR_CANE });
         }
       }
     }

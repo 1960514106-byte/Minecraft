@@ -3,7 +3,7 @@
 // =============================================================================
 
 import * as THREE from 'three';
-import { BLOCK } from './config.js';
+import { BLOCK, WOOL_BLOCKS, WOOL_RGB } from './config.js';
 
 const COLORS = {
   [BLOCK.GRASS]: 0x5f9e40,
@@ -35,7 +35,38 @@ const COLORS = {
   [BLOCK.STONE_BRICK]: 0x787880,
   [BLOCK.BOOKSHELF]: 0x8e6024,
   [BLOCK.TNT]: 0xc83228,
+  // Phase 2: common new blocks (slabs/stairs share their material colour).
+  [BLOCK.OAK_SLAB]: 0xb28a56,
+  [BLOCK.OAK_STAIRS]: 0xb28a56,
+  [BLOCK.STONE_SLAB]: 0x808084,
+  [BLOCK.COBBLESTONE_SLAB]: 0x6e6e72,
+  [BLOCK.COBBLESTONE_STAIRS]: 0x6e6e72,
+  [BLOCK.BRICK_SLAB]: 0x9b4b3c,
+  [BLOCK.BRICK_STAIRS]: 0x9b4b3c,
+  [BLOCK.STONE_BRICK_SLAB]: 0x787880,
+  [BLOCK.STONE_BRICK_STAIRS]: 0x787880,
+  [BLOCK.SANDSTONE]: 0xdecb9c,
+  [BLOCK.SANDSTONE_SLAB]: 0xdecb9c,
+  [BLOCK.SANDSTONE_STAIRS]: 0xdecb9c,
+  [BLOCK.BIRCH_WOOD]: 0xd0ccc0,
+  [BLOCK.BIRCH_PLANK]: 0xd6c496,
+  [BLOCK.BIRCH_SLAB]: 0xd6c496,
+  [BLOCK.BIRCH_STAIRS]: 0xd6c496,
+  [BLOCK.BIRCH_FENCE]: 0xd6c496,
+  [BLOCK.BIRCH_LEAVES]: 0x5ca046,
+  [BLOCK.SPRUCE_WOOD]: 0x48321e,
+  [BLOCK.SPRUCE_PLANK]: 0x7a5634,
+  [BLOCK.SPRUCE_SLAB]: 0x7a5634,
+  [BLOCK.SPRUCE_STAIRS]: 0x7a5634,
+  [BLOCK.SPRUCE_FENCE]: 0x7a5634,
+  [BLOCK.SPRUCE_LEAVES]: 0x28543c,
+  [BLOCK.SUGAR_CANE]: 0x8cbe60,
 };
+// Wool particle colours come straight from the registry palette (dye colour).
+for (const woolId of WOOL_BLOCKS) {
+  const [r, g, b] = WOOL_RGB[woolId];
+  COLORS[woolId] = (r << 16) | (g << 8) | b;
+}
 
 export class Feedback {
   constructor(scene) {

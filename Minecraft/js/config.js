@@ -97,6 +97,79 @@ export const BLOCK = {
   NETHER_BRICK: 75,
   LAVA: 76,
   MOB_SPAWNER: 77,
+  // ---- Phase 2: building-block breadth (78+) --------------------------------
+  // Slabs: meta bit0 = top half. Stairs: meta bits0-1 = facing (0=+X, 1=+Z,
+  // 2=-X, 3=-Z), bit2 = upside-down. One id per material variant.
+  OAK_SLAB: 78,
+  STONE_SLAB: 79,
+  COBBLESTONE_SLAB: 80,
+  BRICK_SLAB: 81,
+  STONE_BRICK_SLAB: 82,
+  SANDSTONE_SLAB: 83,
+  BIRCH_SLAB: 84,
+  SPRUCE_SLAB: 85,
+  OAK_STAIRS: 86,
+  COBBLESTONE_STAIRS: 87,
+  BRICK_STAIRS: 88,
+  STONE_BRICK_STAIRS: 89,
+  SANDSTONE_STAIRS: 90,
+  BIRCH_STAIRS: 91,
+  SPRUCE_STAIRS: 92,
+  BIRCH_WOOD: 93,
+  BIRCH_PLANK: 94,
+  BIRCH_LEAVES: 95,
+  SPRUCE_WOOD: 96,
+  SPRUCE_PLANK: 97,
+  SPRUCE_LEAVES: 98,
+  BIRCH_FENCE: 99,
+  SPRUCE_FENCE: 100,
+  SANDSTONE: 101,
+  SUGAR_CANE: 102,
+  // 16 wool colours as separate ids (vanilla order) so wool works everywhere
+  // blocks are handled generically (no meta involved).
+  WOOL_WHITE: 103,
+  WOOL_ORANGE: 104,
+  WOOL_MAGENTA: 105,
+  WOOL_LIGHT_BLUE: 106,
+  WOOL_YELLOW: 107,
+  WOOL_LIME: 108,
+  WOOL_PINK: 109,
+  WOOL_GRAY: 110,
+  WOOL_LIGHT_GRAY: 111,
+  WOOL_CYAN: 112,
+  WOOL_PURPLE: 113,
+  WOOL_BLUE: 114,
+  WOOL_BROWN: 115,
+  WOOL_GREEN: 116,
+  WOOL_RED: 117,
+  WOOL_BLACK: 118,
+};
+
+// Wool blocks in vanilla colour order, plus the RGB used by the texture
+// painter, minimap and particle colours (single source of truth).
+export const WOOL_BLOCKS = [
+  BLOCK.WOOL_WHITE, BLOCK.WOOL_ORANGE, BLOCK.WOOL_MAGENTA, BLOCK.WOOL_LIGHT_BLUE,
+  BLOCK.WOOL_YELLOW, BLOCK.WOOL_LIME, BLOCK.WOOL_PINK, BLOCK.WOOL_GRAY,
+  BLOCK.WOOL_LIGHT_GRAY, BLOCK.WOOL_CYAN, BLOCK.WOOL_PURPLE, BLOCK.WOOL_BLUE,
+  BLOCK.WOOL_BROWN, BLOCK.WOOL_GREEN, BLOCK.WOOL_RED, BLOCK.WOOL_BLACK,
+];
+export const WOOL_RGB = {
+  [BLOCK.WOOL_WHITE]: [233, 236, 236],
+  [BLOCK.WOOL_ORANGE]: [240, 118, 19],
+  [BLOCK.WOOL_MAGENTA]: [189, 68, 179],
+  [BLOCK.WOOL_LIGHT_BLUE]: [58, 175, 217],
+  [BLOCK.WOOL_YELLOW]: [248, 197, 39],
+  [BLOCK.WOOL_LIME]: [112, 185, 25],
+  [BLOCK.WOOL_PINK]: [237, 141, 172],
+  [BLOCK.WOOL_GRAY]: [62, 68, 71],
+  [BLOCK.WOOL_LIGHT_GRAY]: [142, 142, 134],
+  [BLOCK.WOOL_CYAN]: [21, 137, 145],
+  [BLOCK.WOOL_PURPLE]: [121, 42, 172],
+  [BLOCK.WOOL_BLUE]: [53, 57, 157],
+  [BLOCK.WOOL_BROWN]: [114, 71, 40],
+  [BLOCK.WOOL_GREEN]: [84, 109, 27],
+  [BLOCK.WOOL_RED]: [160, 39, 34],
+  [BLOCK.WOOL_BLACK]: [20, 21, 25],
 };
 
 // ---- Texture atlas layout ---------------------------------------------------
@@ -298,6 +371,62 @@ export const TILES = {
   BOSS_SIGIL:     155,
   // --- row 39 (156..159) ---
   GOLDEN_APPLE:   156,
+  BIRCH_WOOD_TOP: 157,
+  BIRCH_WOOD_SIDE: 158,
+  BIRCH_PLANK:    159,
+  // --- row 40 (160..163) ---
+  BIRCH_LEAVES:   160,
+  SPRUCE_WOOD_TOP: 161,
+  SPRUCE_WOOD_SIDE: 162,
+  SPRUCE_PLANK:   163,
+  // --- row 41 (164..167) ---
+  SPRUCE_LEAVES:  164,
+  SANDSTONE_TOP:  165,
+  SANDSTONE_SIDE: 166,
+  SUGAR_CANE:     167,
+  // --- row 42 (168..171) ---
+  SUGAR:          168,
+  // 16 wool tiles in vanilla colour order (168+1 .. 184)
+  WOOL_WHITE:     169,
+  WOOL_ORANGE:    170,
+  WOOL_MAGENTA:   171,
+  // --- row 43 (172..175) ---
+  WOOL_LIGHT_BLUE: 172,
+  WOOL_YELLOW:    173,
+  WOOL_LIME:      174,
+  WOOL_PINK:      175,
+  // --- row 44 (176..179) ---
+  WOOL_GRAY:      176,
+  WOOL_LIGHT_GRAY: 177,
+  WOOL_CYAN:      178,
+  WOOL_PURPLE:    179,
+  // --- row 45 (180..183) ---
+  WOOL_BLUE:      180,
+  WOOL_BROWN:     181,
+  WOOL_GREEN:     182,
+  WOOL_RED:       183,
+  // --- row 46 (184..187) ---
+  WOOL_BLACK:     184,
+  GOLDEN_PICKAXE: 185,
+  GOLDEN_AXE:     186,
+  GOLDEN_SHOVEL:  187,
+  // --- row 47 (188..191) ---
+  GOLDEN_SWORD:   188,
+  GOLDEN_HOE:     189,
+  GOLDEN_HELMET:  190,
+  GOLDEN_CHEST:   191,
+  // --- row 48 (192..195) ---
+  GOLDEN_LEGS:    192,
+  GOLDEN_BOOTS:   193,
+  GOLDEN_CARROT:  194,
+  RED_DYE:        195,
+  // --- row 49 (196..199) ---
+  YELLOW_DYE:     196,
+  GREEN_DYE:      197,
+  ORANGE_DYE:     198,
+  LIME_DYE:       199,
+  // --- row 50 (200..203) ---
+  PINK_DYE:       200,
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -377,6 +506,24 @@ export const ITEM = {
   BLAZE_ROD: 1069,
   BOSS_SIGIL: 1070,
   GOLDEN_APPLE: 1071,
+  // ---- Phase 2 (1072+) ------------------------------------------------------
+  GOLDEN_PICKAXE: 1072,
+  GOLDEN_AXE: 1073,
+  GOLDEN_SHOVEL: 1074,
+  GOLDEN_SWORD: 1075,
+  GOLDEN_HOE: 1076,
+  GOLDEN_HELMET: 1077,
+  GOLDEN_CHEST: 1078,
+  GOLDEN_LEGS: 1079,
+  GOLDEN_BOOTS: 1080,
+  GOLDEN_CARROT: 1081,
+  SUGAR: 1082,
+  RED_DYE: 1083,
+  YELLOW_DYE: 1084,
+  GREEN_DYE: 1085,
+  ORANGE_DYE: 1086,
+  LIME_DYE: 1087,
+  PINK_DYE: 1088,
 };
 
 // Per-block definition. `top`/`bottom`/`side` are atlas tile indices.
@@ -477,6 +624,56 @@ export const BLOCKS = {
   // Rendered as ordinary opaque cube geometry so the sea reads as a glowing floor.
   [BLOCK.LAVA]: { name: 'Lava', top: TILES.LAVA, bottom: TILES.LAVA, side: TILES.LAVA, solid: false, transparent: false, liquid: true, hardness: Infinity, light: 15 },
   [BLOCK.MOB_SPAWNER]: { name: 'Mob Spawner', top: TILES.MOB_SPAWNER, bottom: TILES.MOB_SPAWNER, side: TILES.MOB_SPAWNER, solid: true, transparent: true, hardness: 3.5, tool: 'pickaxe', minTier: 1, drops: [] },
+  // ---- Slabs & stairs ---------------------------------------------------------
+  // solid (collision is a full box — an accepted approximation, player.js only
+  // knows isSolid) but transparent so neighbouring faces still render behind
+  // the partial shape (the PISTON_HEAD trick). Geometry state lives in meta.
+  [BLOCK.OAK_SLAB]: { name: 'Oak Slab', top: TILES.PLANK, bottom: TILES.PLANK, side: TILES.PLANK, solid: true, transparent: true, hardness: 0.8, tool: 'axe', model: 'slab' },
+  [BLOCK.STONE_SLAB]: { name: 'Stone Slab', top: TILES.STONE, bottom: TILES.STONE, side: TILES.STONE, solid: true, transparent: true, hardness: 1.8, tool: 'pickaxe', model: 'slab' },
+  [BLOCK.COBBLESTONE_SLAB]: { name: 'Cobblestone Slab', top: TILES.COBBLESTONE, bottom: TILES.COBBLESTONE, side: TILES.COBBLESTONE, solid: true, transparent: true, hardness: 1.8, tool: 'pickaxe', model: 'slab' },
+  [BLOCK.BRICK_SLAB]: { name: 'Brick Slab', top: TILES.BRICK, bottom: TILES.BRICK, side: TILES.BRICK, solid: true, transparent: true, hardness: 2.0, tool: 'pickaxe', model: 'slab' },
+  [BLOCK.STONE_BRICK_SLAB]: { name: 'Stone Brick Slab', top: TILES.STONE_BRICK, bottom: TILES.STONE_BRICK, side: TILES.STONE_BRICK, solid: true, transparent: true, hardness: 2.0, tool: 'pickaxe', model: 'slab' },
+  [BLOCK.SANDSTONE_SLAB]: { name: 'Sandstone Slab', top: TILES.SANDSTONE_TOP, bottom: TILES.SANDSTONE_TOP, side: TILES.SANDSTONE_SIDE, solid: true, transparent: true, hardness: 0.9, tool: 'pickaxe', model: 'slab' },
+  [BLOCK.BIRCH_SLAB]: { name: 'Birch Slab', top: TILES.BIRCH_PLANK, bottom: TILES.BIRCH_PLANK, side: TILES.BIRCH_PLANK, solid: true, transparent: true, hardness: 0.8, tool: 'axe', model: 'slab' },
+  [BLOCK.SPRUCE_SLAB]: { name: 'Spruce Slab', top: TILES.SPRUCE_PLANK, bottom: TILES.SPRUCE_PLANK, side: TILES.SPRUCE_PLANK, solid: true, transparent: true, hardness: 0.8, tool: 'axe', model: 'slab' },
+  [BLOCK.OAK_STAIRS]: { name: 'Oak Stairs', top: TILES.PLANK, bottom: TILES.PLANK, side: TILES.PLANK, solid: true, transparent: true, hardness: 0.8, tool: 'axe', model: 'stairs' },
+  [BLOCK.COBBLESTONE_STAIRS]: { name: 'Cobblestone Stairs', top: TILES.COBBLESTONE, bottom: TILES.COBBLESTONE, side: TILES.COBBLESTONE, solid: true, transparent: true, hardness: 1.8, tool: 'pickaxe', model: 'stairs' },
+  [BLOCK.BRICK_STAIRS]: { name: 'Brick Stairs', top: TILES.BRICK, bottom: TILES.BRICK, side: TILES.BRICK, solid: true, transparent: true, hardness: 2.0, tool: 'pickaxe', model: 'stairs' },
+  [BLOCK.STONE_BRICK_STAIRS]: { name: 'Stone Brick Stairs', top: TILES.STONE_BRICK, bottom: TILES.STONE_BRICK, side: TILES.STONE_BRICK, solid: true, transparent: true, hardness: 2.0, tool: 'pickaxe', model: 'stairs' },
+  [BLOCK.SANDSTONE_STAIRS]: { name: 'Sandstone Stairs', top: TILES.SANDSTONE_TOP, bottom: TILES.SANDSTONE_TOP, side: TILES.SANDSTONE_SIDE, solid: true, transparent: true, hardness: 0.9, tool: 'pickaxe', model: 'stairs' },
+  [BLOCK.BIRCH_STAIRS]: { name: 'Birch Stairs', top: TILES.BIRCH_PLANK, bottom: TILES.BIRCH_PLANK, side: TILES.BIRCH_PLANK, solid: true, transparent: true, hardness: 0.8, tool: 'axe', model: 'stairs' },
+  [BLOCK.SPRUCE_STAIRS]: { name: 'Spruce Stairs', top: TILES.SPRUCE_PLANK, bottom: TILES.SPRUCE_PLANK, side: TILES.SPRUCE_PLANK, solid: true, transparent: true, hardness: 0.8, tool: 'axe', model: 'stairs' },
+  // ---- Wood variants ------------------------------------------------------------
+  [BLOCK.BIRCH_WOOD]: { name: 'Birch Wood', top: TILES.BIRCH_WOOD_TOP, bottom: TILES.BIRCH_WOOD_TOP, side: TILES.BIRCH_WOOD_SIDE, solid: true, transparent: false, hardness: 1.15, tool: 'axe' },
+  [BLOCK.BIRCH_PLANK]: { name: 'Birch Planks', top: TILES.BIRCH_PLANK, bottom: TILES.BIRCH_PLANK, side: TILES.BIRCH_PLANK, solid: true, transparent: false, hardness: 0.8, tool: 'axe' },
+  [BLOCK.BIRCH_LEAVES]: { name: 'Birch Leaves', top: TILES.BIRCH_LEAVES, bottom: TILES.BIRCH_LEAVES, side: TILES.BIRCH_LEAVES, solid: true, transparent: false, hardness: 0.18, drops: [] },
+  [BLOCK.SPRUCE_WOOD]: { name: 'Spruce Wood', top: TILES.SPRUCE_WOOD_TOP, bottom: TILES.SPRUCE_WOOD_TOP, side: TILES.SPRUCE_WOOD_SIDE, solid: true, transparent: false, hardness: 1.15, tool: 'axe' },
+  [BLOCK.SPRUCE_PLANK]: { name: 'Spruce Planks', top: TILES.SPRUCE_PLANK, bottom: TILES.SPRUCE_PLANK, side: TILES.SPRUCE_PLANK, solid: true, transparent: false, hardness: 0.8, tool: 'axe' },
+  [BLOCK.SPRUCE_LEAVES]: { name: 'Spruce Leaves', top: TILES.SPRUCE_LEAVES, bottom: TILES.SPRUCE_LEAVES, side: TILES.SPRUCE_LEAVES, solid: true, transparent: false, hardness: 0.18, drops: [] },
+  [BLOCK.BIRCH_FENCE]: { name: 'Birch Fence', top: TILES.BIRCH_PLANK, bottom: TILES.BIRCH_PLANK, side: TILES.BIRCH_PLANK, solid: true, transparent: true, hardness: 0.8, tool: 'axe', model: 'fence' },
+  [BLOCK.SPRUCE_FENCE]: { name: 'Spruce Fence', top: TILES.SPRUCE_PLANK, bottom: TILES.SPRUCE_PLANK, side: TILES.SPRUCE_PLANK, solid: true, transparent: true, hardness: 0.8, tool: 'axe', model: 'fence' },
+  // ---- Sandstone / sugar cane ---------------------------------------------------
+  [BLOCK.SANDSTONE]: { name: 'Sandstone', top: TILES.SANDSTONE_TOP, bottom: TILES.SANDSTONE_TOP, side: TILES.SANDSTONE_SIDE, solid: true, transparent: false, hardness: 0.9, tool: 'pickaxe' },
+  // Sugar cane: cross model like flowers; placement rules (sand/dirt/grass below,
+  // water adjacent to the support) are enforced in the main.js place path.
+  [BLOCK.SUGAR_CANE]: { name: 'Sugar Cane', top: TILES.SUGAR_CANE, bottom: TILES.SUGAR_CANE, side: TILES.SUGAR_CANE, solid: false, transparent: true, hardness: 0.05, model: 'cross' },
+  // ---- Wool x16 -------------------------------------------------------------------
+  [BLOCK.WOOL_WHITE]: { name: 'White Wool', top: TILES.WOOL_WHITE, bottom: TILES.WOOL_WHITE, side: TILES.WOOL_WHITE, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_ORANGE]: { name: 'Orange Wool', top: TILES.WOOL_ORANGE, bottom: TILES.WOOL_ORANGE, side: TILES.WOOL_ORANGE, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_MAGENTA]: { name: 'Magenta Wool', top: TILES.WOOL_MAGENTA, bottom: TILES.WOOL_MAGENTA, side: TILES.WOOL_MAGENTA, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_LIGHT_BLUE]: { name: 'Light Blue Wool', top: TILES.WOOL_LIGHT_BLUE, bottom: TILES.WOOL_LIGHT_BLUE, side: TILES.WOOL_LIGHT_BLUE, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_YELLOW]: { name: 'Yellow Wool', top: TILES.WOOL_YELLOW, bottom: TILES.WOOL_YELLOW, side: TILES.WOOL_YELLOW, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_LIME]: { name: 'Lime Wool', top: TILES.WOOL_LIME, bottom: TILES.WOOL_LIME, side: TILES.WOOL_LIME, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_PINK]: { name: 'Pink Wool', top: TILES.WOOL_PINK, bottom: TILES.WOOL_PINK, side: TILES.WOOL_PINK, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_GRAY]: { name: 'Gray Wool', top: TILES.WOOL_GRAY, bottom: TILES.WOOL_GRAY, side: TILES.WOOL_GRAY, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_LIGHT_GRAY]: { name: 'Light Gray Wool', top: TILES.WOOL_LIGHT_GRAY, bottom: TILES.WOOL_LIGHT_GRAY, side: TILES.WOOL_LIGHT_GRAY, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_CYAN]: { name: 'Cyan Wool', top: TILES.WOOL_CYAN, bottom: TILES.WOOL_CYAN, side: TILES.WOOL_CYAN, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_PURPLE]: { name: 'Purple Wool', top: TILES.WOOL_PURPLE, bottom: TILES.WOOL_PURPLE, side: TILES.WOOL_PURPLE, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_BLUE]: { name: 'Blue Wool', top: TILES.WOOL_BLUE, bottom: TILES.WOOL_BLUE, side: TILES.WOOL_BLUE, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_BROWN]: { name: 'Brown Wool', top: TILES.WOOL_BROWN, bottom: TILES.WOOL_BROWN, side: TILES.WOOL_BROWN, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_GREEN]: { name: 'Green Wool', top: TILES.WOOL_GREEN, bottom: TILES.WOOL_GREEN, side: TILES.WOOL_GREEN, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_RED]: { name: 'Red Wool', top: TILES.WOOL_RED, bottom: TILES.WOOL_RED, side: TILES.WOOL_RED, solid: true, transparent: false, hardness: 0.75 },
+  [BLOCK.WOOL_BLACK]: { name: 'Black Wool', top: TILES.WOOL_BLACK, bottom: TILES.WOOL_BLACK, side: TILES.WOOL_BLACK, solid: true, transparent: false, hardness: 0.75 },
 };
 
 // Blocks selectable in the hotbar (1..N keys), in order.
@@ -515,7 +712,9 @@ export const ITEMS = {
   [ITEM.RAW_BEEF]: { name: 'Raw Beef', tile: TILES.RAW_BEEF, food: 3 },
   [ITEM.COOKED_BEEF]: { name: 'Steak', tile: TILES.COOKED_BEEF, food: 8 },
   [ITEM.LEATHER]: { name: 'Leather', tile: TILES.LEATHER },
-  [ITEM.WOOL]: { name: 'Wool', tile: TILES.WOOL },
+  // Legacy wool item (pre-Phase-2 saves): kept as an alias that places white
+  // wool so old stacks stay usable. Sheep now drop BLOCK.WOOL_WHITE directly.
+  [ITEM.WOOL]: { name: 'Wool', tile: TILES.WOOL, placeable: BLOCK.WOOL_WHITE },
   [ITEM.LEATHER_HELMET]: { name: 'Leather Cap', tile: TILES.LEATHER_HELMET, stack: 1, armor: 2, armorSlot: 'head' },
   [ITEM.LEATHER_CHEST]: { name: 'Leather Tunic', tile: TILES.LEATHER_CHEST, stack: 1, armor: 3, armorSlot: 'chest' },
   [ITEM.IRON_HELMET]: { name: 'Iron Helmet', tile: TILES.IRON_HELMET, stack: 1, armor: 4, armorSlot: 'head' },
@@ -568,6 +767,28 @@ export const ITEMS = {
   [ITEM.BOSS_SIGIL]: { name: 'Overlord Sigil', tile: TILES.BOSS_SIGIL, stack: 1 },
   // Golden apple: big hunger refill; eating it also fully heals (main.js).
   [ITEM.GOLDEN_APPLE]: { name: 'Golden Apple', tile: TILES.GOLDEN_APPLE, food: 20 },
+  // Gold tools: stone-tier mining CAPABILITY (tier 2) but very fast (speedTier
+  // 6 feeds the breakDuration speed formula) and fragile (durability 32).
+  [ITEM.GOLDEN_PICKAXE]: { name: 'Golden Pickaxe', tile: TILES.GOLDEN_PICKAXE, tool: 'pickaxe', tier: 2, speedTier: 6, stack: 1, durability: 32 },
+  [ITEM.GOLDEN_AXE]: { name: 'Golden Axe', tile: TILES.GOLDEN_AXE, tool: 'axe', tier: 2, speedTier: 6, stack: 1, durability: 32 },
+  [ITEM.GOLDEN_SHOVEL]: { name: 'Golden Shovel', tile: TILES.GOLDEN_SHOVEL, tool: 'shovel', tier: 2, speedTier: 6, stack: 1, durability: 32 },
+  [ITEM.GOLDEN_SWORD]: { name: 'Golden Sword', tile: TILES.GOLDEN_SWORD, stack: 1, damage: 4, durability: 32 },
+  [ITEM.GOLDEN_HOE]: { name: 'Golden Hoe', tile: TILES.GOLDEN_HOE, tool: 'hoe', tier: 2, speedTier: 6, stack: 1, durability: 32 },
+  [ITEM.GOLDEN_HELMET]: { name: 'Golden Helmet', tile: TILES.GOLDEN_HELMET, stack: 1, armor: 2, armorSlot: 'head' },
+  [ITEM.GOLDEN_CHEST]: { name: 'Golden Chestplate', tile: TILES.GOLDEN_CHEST, stack: 1, armor: 5, armorSlot: 'chest' },
+  [ITEM.GOLDEN_LEGS]: { name: 'Golden Leggings', tile: TILES.GOLDEN_LEGS, stack: 1, armor: 3, armorSlot: 'legs' },
+  [ITEM.GOLDEN_BOOTS]: { name: 'Golden Boots', tile: TILES.GOLDEN_BOOTS, stack: 1, armor: 1, armorSlot: 'feet' },
+  // Golden carrot: future potion ingredient; crafted from 1 gold ingot + carrot
+  // (no gold nuggets exist yet).
+  [ITEM.GOLDEN_CARROT]: { name: 'Golden Carrot', tile: TILES.GOLDEN_CARROT, food: 6 },
+  [ITEM.SUGAR]: { name: 'Sugar', tile: TILES.SUGAR },
+  // Dyes (partial set — the rest arrive with their source mobs/plants).
+  [ITEM.RED_DYE]: { name: 'Red Dye', tile: TILES.RED_DYE },
+  [ITEM.YELLOW_DYE]: { name: 'Yellow Dye', tile: TILES.YELLOW_DYE },
+  [ITEM.GREEN_DYE]: { name: 'Green Dye', tile: TILES.GREEN_DYE },
+  [ITEM.ORANGE_DYE]: { name: 'Orange Dye', tile: TILES.ORANGE_DYE },
+  [ITEM.LIME_DYE]: { name: 'Lime Dye', tile: TILES.LIME_DYE },
+  [ITEM.PINK_DYE]: { name: 'Pink Dye', tile: TILES.PINK_DYE },
 };
 
 // True if an item ID refers to a placeable block (vs. an item-only thing).
@@ -605,13 +826,21 @@ export function toolTier(id) {
   return it && it.tier ? it.tier : 0;
 }
 
+// Mining SPEED tier of a tool: `speedTier` override if present (gold tools mine
+// fast despite their low capability tier), otherwise the capability tier.
+export function toolSpeedTier(id) {
+  const it = ITEMS[id];
+  if (!it) return 0;
+  return it.speedTier ? it.speedTier : (it.tier || 0);
+}
+
 export function breakDuration(blockId, itemId = null, efficiencyLevel = 0) {
   const b = BLOCKS[blockId];
   if (!b || !Number.isFinite(b.hardness)) return Infinity;
   const tool = toolKind(itemId);
   const tier = toolTier(itemId);
   if (b.minTier && (tool !== b.tool || tier < b.minTier)) return Math.max(0.25, b.hardness * 3.5);
-  let speed = tool && tool === b.tool ? 2.4 + tier * 1.15 : tool ? 1.25 : 1;
+  let speed = tool && tool === b.tool ? 2.4 + toolSpeedTier(itemId) * 1.15 : tool ? 1.25 : 1;
   // Efficiency only helps when the right tool is used on the block.
   if (efficiencyLevel > 0 && tool && tool === b.tool) speed *= 1 + 0.3 * efficiencyLevel;
   return Math.max(0.12, b.hardness / speed);
@@ -636,10 +865,14 @@ export function attackDamage(itemId = null) {
     case ITEM.WOODEN_AXE: return 5;
     case ITEM.STONE_PICKAXE: return 5;
     case ITEM.IRON_SHOVEL: return 5;
+    case ITEM.GOLDEN_AXE: return 5;
     case ITEM.WOODEN_SWORD: return 4;
     case ITEM.WOODEN_PICKAXE: return 4;
     case ITEM.STONE_SHOVEL: return 4;
+    case ITEM.GOLDEN_SWORD: return 4;   // gold: fast but weak, like wood
+    case ITEM.GOLDEN_PICKAXE: return 4;
     case ITEM.WOODEN_SHOVEL: return 3;
+    case ITEM.GOLDEN_SHOVEL: return 3;
     default: return 1;
   }
 }
@@ -659,11 +892,16 @@ export const SMELTING = {
   [BLOCK.COBBLESTONE]: { id: BLOCK.STONE,      count: 1 },
   [BLOCK.CLAY]:       { id: BLOCK.BRICK,       count: 1 },
   [BLOCK.NETHERRACK]: { id: BLOCK.NETHER_BRICK, count: 1 },
+  [BLOCK.CACTUS]:     { id: ITEM.GREEN_DYE,    count: 1 },
 };
 export const FUEL = {
   [ITEM.COAL]:    16,
   [BLOCK.WOOD]:   12,
+  [BLOCK.BIRCH_WOOD]: 12,
+  [BLOCK.SPRUCE_WOOD]: 12,
   [BLOCK.PLANK]:  6,
+  [BLOCK.BIRCH_PLANK]: 6,
+  [BLOCK.SPRUCE_PLANK]: 6,
   [ITEM.STICK]:   2,
   [ITEM.BLAZE_ROD]: 60,
 };
@@ -743,6 +981,8 @@ export const APPLE_DROP_CHANCE = 0.08;
 export const SEED_DROP_CHANCE = 0.4;
 // Per-second chance that a growing wheat crop advances one stage.
 export const WHEAT_GROW_CHANCE = 0.02;
+// Per-second chance a player-planted sugar cane grows one segment (max 3 tall).
+export const CANE_GROW_CHANCE = 0.02;
 // Ordered wheat growth stages (used by the crop ticker in main.js).
 export const WHEAT_STAGES = [BLOCK.WHEAT_0, BLOCK.WHEAT_1, BLOCK.WHEAT_2, BLOCK.WHEAT_3];
 export const CARROT_STAGES = [BLOCK.CARROT_0, BLOCK.CARROT_1, BLOCK.CARROT_2];
