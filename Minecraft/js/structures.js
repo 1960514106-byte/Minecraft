@@ -62,6 +62,9 @@ const LOOT_TABLES = {
     { id: ITEM.GLOWSTONE_DUST, min: 2, max: 5, chance: 0.6 },
     { id: ITEM.GOLDEN_APPLE, min: 1, max: 1, chance: 0.12 },
     { id: ITEM.DIAMOND, min: 1, max: 2, chance: 0.2 },
+    // Phase 7: nether wart seeds the brewing loop (also grows in the
+    // fortress's soul-sand patch).
+    { id: ITEM.NETHER_WART, min: 1, max: 3, chance: 0.6 },
   ],
 };
 
@@ -409,6 +412,15 @@ function generateFortressPart(world, chunk) {
       world.structureSpawners.set(`${wx - 4},${y + 1},${wz}`, 'blaze');
       put(wx + 4, y + 1, wz, BLOCK.CHEST);
       world.structureLoot.set(`${wx + 4},${y + 1},${wz}`, 'fortress');
+      // Phase 7: a small soul-sand garden in one corner of the platform, some
+      // cells already sprouting nether wart (deterministic per cell).
+      for (const [gx, gz] of [[2, -4], [3, -4], [2, -3], [3, -3]]) {
+        put(wx + gx, y, wz + gz, BLOCK.SOUL_SAND);
+        const roll = world.hash01_3(wx + gx, y, wz + gz, 1037);
+        if (roll < 0.6) {
+          put(wx + gx, y + 1, wz + gz, roll < 0.2 ? BLOCK.NETHER_WART_2 : BLOCK.NETHER_WART_1);
+        }
+      }
     }
   }
 }

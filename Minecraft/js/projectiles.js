@@ -96,8 +96,11 @@ export class ProjectileManager {
     });
   }
 
-  // Witch flask: arrow-like arc, shatters on any impact ('flaskBreak' event).
-  shootFlask(origin, dir, speed, damage) {
+  // Potion flask (witch attacks AND player-thrown splash potions): arrow-like
+  // arc, shatters on any impact into a 'flaskBreak' event carrying `payload`
+  // ({ effect, amp, dur } or { instant, amount }) — main.js applies the AoE.
+  // Flasks deal no direct damage; `damage` is kept for legacy plain flasks.
+  shootFlask(origin, dir, speed, damage, opts = {}) {
     const mesh = getFlaskMesh();
     mesh.position.copy(origin);
     this.scene.add(mesh);
@@ -105,7 +108,8 @@ export class ProjectileManager {
       mesh,
       velocity: dir.clone().multiplyScalar(speed),
       damage,
-      fromPlayer: false,
+      fromPlayer: !!opts.fromPlayer,
+      payload: opts.payload || null,
       stuck: false,
       life: 0,
       kind: 'flask',
@@ -162,7 +166,7 @@ export class ProjectileManager {
           continue;
         }
         if (a.kind === 'flask') {
-          events.push({ type: 'flaskBreak', pos: p.clone() });
+          events.push({ type: 'flaskBreak', pos: p.clone(), payload: a.payload, fromPlayer: a.fromPlayer });
           this._remove(i);
           continue;
         }
@@ -173,7 +177,8 @@ export class ProjectileManager {
         continue;
       }
 
-      // Mob hits (player arrows only).
+      // Mob hits (player projectiles only). Player-thrown flasks shatter on
+      // the mob into a flaskBreak (the AoE hits it); arrows deal direct damage.
       if (a.fromPlayer && mobs) {
         let hitMob = null;
         for (const mob of mobs) {
@@ -185,20 +190,29 @@ export class ProjectileManager {
           }
         }
         if (hitMob) {
-          events.push({ type: 'mob', mob: hitMob, damage: a.damage, pos: p.clone() });
+          if (a.kind === 'flask') {
+            events.push({ type: 'flaskBreak', pos: p.clone(), payload: a.payload, fromPlayer: true });
+          } else {
+            events.push({ type: 'mob', mob: hitMob, damage: a.damage, pos: p.clone() });
+          }
           this._remove(i);
           continue;
         }
       }
 
-      // Player hit (hostile arrows only). Compare against the body centre
-      // (eye height minus ~0.8) so shots at the torso connect.
+      // Player hit (hostile projectiles only). Compare against the body centre
+      // (eye height minus ~0.8) so shots at the torso connect. Hostile flasks
+      // shatter into a flaskBreak (AoE, no direct damage) like block impacts.
       if (!a.fromPlayer) {
         const dx = playerPos.x - p.x;
         const dy = playerPos.y - 0.8 - p.y;
         const dz = playerPos.z - p.z;
         if (dx * dx + dy * dy + dz * dz < PLAYER_HIT_RADIUS * PLAYER_HIT_RADIUS) {
-          events.push({ type: 'player', damage: a.damage, kind: a.kind });
+          if (a.kind === 'flask') {
+            events.push({ type: 'flaskBreak', pos: p.clone(), payload: a.payload, fromPlayer: false });
+          } else {
+            events.push({ type: 'player', damage: a.damage, kind: a.kind, pos: p.clone() });
+          }
           this._remove(i);
         }
       }

@@ -343,3 +343,87 @@ Engine/general:
       edge-state, comparator mode all resume without a stuck state.
 - [ ] `node test/smoke.mjs` green; `?debug=1` exposes `__game.redstone`,
       `hoppers`, `dispensers`, `placeBlock`, `cycleNoteBlock`.
+
+## Phase 7 — Status effects, brewing, enchanting/anvil, shields (SAVE_VERSION 13)
+
+Save migration:
+- [ ] A v12 world loads cleanly and reports version 13 (`effects` list and
+      `brewingStands` map added, both empty).
+- [ ] Save with active effects + a mid-brew stand, reload: HUD chips reappear
+      with the remaining seconds; the stand finishes its brew.
+
+Status effects:
+- [ ] Drinking a Potion of Swiftness shows a coloured "Speed 90s" chip near
+      the survival bars, counts down, and visibly increases walk/sprint speed;
+      the chip disappears when it expires.
+- [ ] Slowness slows the player; the two stack (speed + slowness partially
+      cancel).
+- [ ] Poison drains 1 HP per 1.25 s with a red flash but stops at 1 HP.
+- [ ] Regeneration heals 1 HP per 2.5 s; golden apples now also grant
+      Regeneration II for 10 s on top of the full heal.
+- [ ] Fire Resistance: standing in lava deals no damage while the chip lasts.
+- [ ] Water Breathing: the air meter never drains underwater.
+- [ ] Night Vision: night/caves brighten (scene-light floor lerps in and out —
+      baked chunk light untouched).
+- [ ] Strength adds +3 melee damage per level; Weakness −2 (min 1).
+- [ ] Effects clear on death/respawn.
+
+Brewing:
+- [ ] Brewing stand crafts from a blaze rod + 3 cobblestone; renders as a
+      cross-sprite stand (documented: no 3D stand model) and right-click
+      opens the BREWING STAND screen (3 bottles / ingredient / fuel).
+- [ ] 3 glass → 3 glass bottles; right-click water fills one WITHOUT removing
+      the water cell.
+- [ ] Nether wart: found in fortress chests and growing on the fortress
+      soul-sand garden; plants ONLY on soul sand; grows through 3 stages via
+      the shared crop ticker (bone meal works); mature drops 3 wart.
+- [ ] Water bottle + nether wart + blaze-powder fuel → Awkward Potion after
+      20 s (one powder charges 20 brews); "Local Brewery" achievement fires.
+- [ ] Awkward + sugar/blaze powder/golden carrot/magma cream/spider eye/ghast
+      tear/raw fish → speed/strength/night vision/fire res/poison/regen/water
+      breathing potions (raw fish stands in for pufferfish — documented).
+- [ ] Fermented spider eye (sugar + spider eye, shapeless) corrupts:
+      speed→slowness, strength→weakness, healing→poison (documented subset).
+- [ ] Gunpowder turns any effect potion into a SPLASH potion — same icon, a
+      "Splash" tooltip prefix (stack flag, not a new id — documented); throwing
+      it applies the effect in a 3-block radius to the player and mobs.
+- [ ] Drinking returns the glass bottle; splash potions do not.
+- [ ] Breaking / blowing up a stand spills bottles, ingredient and fuel
+      (splash flags are lost on dropped items — documented).
+- [ ] Witches now poison (amp 1, 15 s) via their flask's splash instead of
+      dealing flat damage.
+- [ ] Splash slowness/weakness visibly slow a mob / reduce its melee damage;
+      mob effects survive save/reload.
+
+Enchanting expansion:
+- [ ] All enchantments now reach level IV; buying level N costs N+2 XP levels
+      (I=3 as before, IV=6) and the screen shows the per-level cost.
+- [ ] Bows enchant with Power (+25% arrow damage per level) and Unbreaking.
+
+Anvil:
+- [ ] Anvil crafts from 3 iron blocks + 4 iron ingots; renders as a cube with
+      an anvil-silhouette texture (documented: no 3D anvil model).
+- [ ] Right-click opens the ANVIL screen: two inputs + output, 2-XP-level
+      flat cost (shown in red when unaffordable; free in creative).
+- [ ] Two damaged same-id tools combine: durabilities add +12% of max
+      (capped), enchantments merge taking the max level of each.
+- [ ] Tool + its raw material (iron ingot / diamond / gold ingot / cobble /
+      planks; shield repairs with planks) restores 25% max per unit, consuming
+      only as many units as needed. Armor has no durability → not repairable
+      (documented). Renaming is skipped (no item names — documented).
+
+Shield:
+- [ ] Shield crafts from 6 planks + 1 iron ingot (Y shape), durability 336.
+- [ ] Holding right-click with the shield selected raises it (hand pose) and
+      slows movement to 30%.
+- [ ] Frontal damage (mob melee, arrows, fireballs, explosions — anything
+      with a source position) is reduced 66%; the prevented damage is charged
+      to the shield's durability. Falls/lava/poison are never blocked
+      (documented: those carry no source position).
+- [ ] Attacks from behind bypass the shield entirely.
+- [ ] Releasing right-click, switching slots or opening a screen lowers it.
+
+Debug / automation:
+- [ ] `node test/smoke.mjs` green; `?debug=1` exposes `__game.effects`,
+      `brewing`, `xp`, `anvilResult`, `anvilSlots`/`anvilTake`, `setBlocking`,
+      `drinkSelected`, `throwSelectedSplash`, `openBrewScreen`, `openAnvil`.

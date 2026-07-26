@@ -22,6 +22,9 @@ import { ChestManager, CHEST_SLOTS } from './chest.js';
 import { DispenserManager } from './dispensers.js';
 import { HopperManager, insertStack } from './hoppers.js';
 import { craftResult, craftCost, SHAPELESS, SHAPED_2, SHAPED_3 } from './crafting.js';
+import { EffectManager, EFFECTS } from './effects.js';
+import { BrewingManager, brewResult, isBrewIngredient, isBottleSlotItem, BREW_TIME } from './brewing.js';
+import { anvilResult, ANVIL_XP_COST } from './anvil.js';
 import { AchievementManager } from './achievements.js';
 import { Minimap } from './minimap.js';
 import { Weather } from './weather.js';
@@ -41,8 +44,8 @@ import {
   HOTBAR_SIZE, INVENTORY_SIZE, APPLE_DROP_CHANCE,
   SEED_DROP_CHANCE, WHEAT_GROW_CHANCE, CANE_GROW_CHANCE, toolKind, nextCropStage, isCropBlock,
   itemMaxDurability, placeableBlock, isClimbable, isSolid, isRail, stackEnchant,
-  xpFromMining, xpFromKill, isEnchantable, ENCHANTMENTS, decodeEditId, blockModel,
-  fluidLevel,
+  xpFromMining, xpFromKill, isEnchantable, ENCHANTMENTS, enchantCost, decodeEditId, blockModel,
+  fluidLevel, POTION_EFFECTS, isPotionItem,
 } from './config.js';
 
 // ---- Renderer ---------------------------------------------------------------
@@ -137,7 +140,7 @@ function ensureNether() {
   return netherWorld;
 }
 
-const SAVE_VERSION = 12;
+const SAVE_VERSION = 13;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
@@ -176,6 +179,14 @@ scene.add(player.getObject());
 world.update(player.getObject().position);
 
 const survival = new Survival(hasSave ? save.survival : null);
+
+// Phase 7: the player's status effects + brewing stands. The EffectManager is
+// owned here and injected into survival (regen/poison/fire res/water
+// breathing) and the player controller (speed/slowness).
+const effects = new EffectManager(hasSave ? save.effects : null);
+survival.effects = effects;
+player.effects = effects;
+const brewing = new BrewingManager(hasSave ? save.brewingStands : null);
 
 // Survival inventory. New games get a small starter kit so the player can build
 // and reach the first crafting recipes without grinding.
@@ -220,13 +231,13 @@ mobs.onShootFire = (from, to, damage) => {
   projectiles.shootFireball(from, dir, 11, damage);
   feedback.play('fireShoot');
 };
-// Witch flasks arc like arrows but shatter on impact (real poison waits for
-// the Phase 7 effect system; for now the flask deals direct damage).
+// Witch flasks arc like arrows and shatter on impact into a poison splash
+// (Phase 7: real status effect — amp 1, 15 s — instead of flat damage).
 mobs.onShootFlask = (from, to) => {
   const dir = to.clone().sub(from);
   dir.y += 0.25; // slight lob
   dir.normalize();
-  projectiles.shootFlask(from, dir, 13, 3);
+  projectiles.shootFlask(from, dir, 13, 0, { payload: { effect: 'poison', amp: 1, dur: 15 } });
   feedback.play('bowShoot');
 };
 // Creeper blasts and redstone-triggered TNT run through the shared explosion.
@@ -237,7 +248,7 @@ mobs.onEffect = (name, pos) => {
   else if (name === 'warp') { feedback.warpBurst(pos); feedback.play('warp'); }
   else if (name === 'smoke') feedback.smokePuff(pos);
 };
-mobs.onWolfBite = (dmg) => survival.damage(dmg, 'Wolf bite');
+mobs.onWolfBite = (dmg, pos) => survival.damage(dmg, 'Wolf bite', pos);
 mobs.onKillByWolf = (result) => handleMobKill(result);
 // Environmental deaths (fall damage) drop loot through the same path.
 mobs.onEnvKill = (result) => handleMobKill(result);
@@ -430,6 +441,8 @@ function explodeAt(center, radius) {
           redstone.onBlockRemoved(bx, by, bz, id);
         } else if (id === BLOCK.HOPPER) {
           for (const d of hoppers.remove(dimKey(bx, by, bz))) drops.spawn(d.id, d.count, dropPos);
+        } else if (id === BLOCK.BREWING_STAND) {
+          for (const d of brewing.remove(dimKey(bx, by, bz))) drops.spawn(d.id, d.count, dropPos);
         } else if (id === BLOCK.LEVER || id === BLOCK.BUTTON || id === BLOCK.REPEATER ||
                    id === BLOCK.REPEATER_ON || id === BLOCK.PISTON || id === BLOCK.REDSTONE_WIRE ||
                    id === BLOCK.REDSTONE_TORCH || id === BLOCK.REDSTONE_TORCH_OFF ||
@@ -453,7 +466,7 @@ function explodeAt(center, radius) {
 
   const pd = player.getObject().position.distanceTo(center);
   if (pd < radius + 2) {
-    survival.damage(Math.max(1, Math.round(14 * (1 - pd / (radius + 3)))), 'Explosion');
+    survival.damage(Math.max(1, Math.round(14 * (1 - pd / (radius + 3)))), 'Explosion', center);
   }
   for (let i = mobs.mobs.length - 1; i >= 0; i--) {
     const m = mobs.mobs[i];
@@ -486,7 +499,7 @@ window.addEventListener('keydown', (e) => {
 });
 player.controls.addEventListener('lock', () => overlay.classList.add('hidden'));
 player.controls.addEventListener('unlock', () => {
-  if (!invOpen && !furnaceOpen && !chestOpen && !settingsOpen && !enchantOpen && !tradeOpen) {
+  if (!invOpen && !furnaceOpen && !chestOpen && !brewOpen && !anvilOpen && !settingsOpen && !enchantOpen && !tradeOpen) {
     overlay.classList.remove('hidden');
   }
 });
@@ -509,16 +522,17 @@ function iconStyle(el, id, px) {
   el.style.backgroundPosition = `-${col * px}px -${row * px}px`;
 }
 
-const ROMAN = ['', 'I', 'II', 'III'];
+const ROMAN = ['', 'I', 'II', 'III', 'IV'];
 
 function stackTip(stack) {
   if (!stack) return '';
   const name = itemDef(stack.id).name;
   let tip = stack.count > 1 ? `${name}\nx${stack.count}` : name;
+  if (stack.splash) tip = `Splash ${tip}`; // splash potions share the icon (stack flag)
   if (stack.enchantments) {
     for (const [key, lvl] of Object.entries(stack.enchantments)) {
       const e = ENCHANTMENTS[key];
-      if (e && lvl > 0) tip += `\n${e.name} ${ROMAN[Math.min(3, lvl)]}`;
+      if (e && lvl > 0) tip += `\n${e.name} ${ROMAN[Math.min(4, lvl)]}`;
     }
   }
   const maxDur = itemMaxDurability(stack.id);
@@ -560,6 +574,8 @@ let selected = 0;
 // Bow charge state (declared early: setSelected below cancels a draw).
 let bowCharging = false;
 let bowCharge = 0;
+// Shield blocking state (declared early for the same reason).
+let shieldBlocking = false;
 const BOW_CHARGE_TIME = 1.0;
 const BASE_FOV = 70;
 
@@ -613,6 +629,7 @@ function refreshHotbar() {
 function setSelected(i) {
   selected = ((i % HOTBAR_SIZE) + HOTBAR_SIZE) % HOTBAR_SIZE;
   cancelBowCharge();
+  setShieldBlocking(false);
   refreshHotbar();
 }
 setSelected(hasSave && typeof save.slot === 'number' ? save.slot : 0);
@@ -649,6 +666,8 @@ function gatherState() {
     netherRedstone: redstoneNether ? redstoneNether.serialize() : undefined,
     fluids: fluidsOver.serialize(),
     netherFluids: fluidsNether ? fluidsNether.serialize() : undefined,
+    effects: effects.serialize(),
+    brewingStands: brewing.serialize(),
   };
 }
 
@@ -694,6 +713,8 @@ window.addEventListener('keydown', async (e) => {
   if (e.code === 'Escape' && chestOpen) closeChest();
   if (e.code === 'Escape' && enchantOpen) closeEnchantScreen();
   if (e.code === 'Escape' && tradeOpen) closeTradeScreen();
+  if (e.code === 'Escape' && brewOpen) closeBrew();
+  if (e.code === 'Escape' && anvilOpen) closeAnvil();
   if (e.code === 'KeyT') dayNight.skip(1 / 24);
   if (e.code === 'KeyP') dayNight.togglePause();
   if (e.code === 'KeyK') {
@@ -816,7 +837,10 @@ function tryAttackMob() {
 
   const heldStack = inventory.get(selected);
   const heldId = heldStack ? heldStack.id : null;
-  const damage = attackDamage(heldId) + 2 * stackEnchant(heldStack, 'sharpness');
+  // Strength +3/level, Weakness -2/level (min 1) on top of sharpness.
+  const damage = Math.max(1,
+    attackDamage(heldId) + 2 * stackEnchant(heldStack, 'sharpness') +
+    3 * effects.level('strength') - 2 * effects.level('weakness'));
   const result = mobs.damageMob(mobHit.mob, damage, player.getObject().position);
   // Tamed wolves join in on whatever their owner is fighting.
   if (!result || !result.killed) mobs.playerTarget = mobHit.mob;
@@ -903,6 +927,11 @@ function breakBlock(hit, toolId = null) {
   if (id === BLOCK.HOPPER) {
     for (const d of hoppers.remove(dimKey(hit.x, hit.y, hit.z))) drops.spawn(d.id, d.count, dropPos);
   }
+  // Brewing stands spill their bottles/ingredient/fuel (splash flags are lost
+  // on the ground — dropped entities carry no stack tags; documented).
+  if (id === BLOCK.BREWING_STAND) {
+    for (const d of brewing.remove(dimKey(hit.x, hit.y, hit.z))) drops.spawn(d.id, d.count, dropPos);
+  }
   // Mining a spawner disables it.
   if (id === BLOCK.MOB_SPAWNER && world.structureSpawners) {
     world.structureSpawners.delete(`${hit.x},${hit.y},${hit.z}`);
@@ -970,7 +999,7 @@ function beginMining(hit) {
 }
 
 function updateMining(dt) {
-  if (!primaryDown || invOpen || furnaceOpen || chestOpen || !player.controls.isLocked || !survival.alive) {
+  if (!primaryDown || invOpen || furnaceOpen || chestOpen || brewOpen || anvilOpen || !player.controls.isLocked || !survival.alive) {
     cancelMining();
     return;
   }
@@ -1014,6 +1043,8 @@ const PICK_REMAP = {
   [BLOCK.WHEAT_3]: BLOCK.WHEAT_0,
   [BLOCK.CARROT_1]: BLOCK.CARROT_0,
   [BLOCK.CARROT_2]: BLOCK.CARROT_0,
+  [BLOCK.NETHER_WART_1]: BLOCK.NETHER_WART_0,
+  [BLOCK.NETHER_WART_2]: BLOCK.NETHER_WART_0,
 };
 
 // Creative middle-click: put the targeted block in the hotbar. If a hotbar
@@ -1045,12 +1076,12 @@ window.addEventListener('mousedown', (e) => {
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button === 1) {
     e.preventDefault();
-    if (!invOpen && !furnaceOpen && !chestOpen && player.controls.isLocked && survival.alive) {
+    if (!invOpen && !furnaceOpen && !chestOpen && !brewOpen && !anvilOpen && player.controls.isLocked && survival.alive) {
       pickBlockUnderCrosshair();
     }
     return;
   }
-  if (invOpen || furnaceOpen || chestOpen || !player.controls.isLocked || !survival.alive) return;
+  if (invOpen || furnaceOpen || chestOpen || brewOpen || anvilOpen || !player.controls.isLocked || !survival.alive) return;
   feedback.ensureAudio();
 
   if (e.button === 0) {
@@ -1178,6 +1209,14 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     }
     if (hit && world.getBlock(hit.x, hit.y, hit.z) === BLOCK.ENCHANTING_TABLE) {
       openEnchantScreen();
+      return;
+    }
+    if (hit && world.getBlock(hit.x, hit.y, hit.z) === BLOCK.BREWING_STAND) {
+      openBrewing(hit.x, hit.y, hit.z);
+      return;
+    }
+    if (hit && world.getBlock(hit.x, hit.y, hit.z) === BLOCK.ANVIL) {
+      openAnvilScreen();
       return;
     }
     // Bed: set respawn point; at night also sleep straight through to morning.
@@ -1363,9 +1402,13 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       return;
     }
 
-    // Seeds / carrots: plant a crop on top of farmland.
-    const plantAs = held && (held.id === ITEM.WHEAT_SEEDS ? BLOCK.WHEAT_0 : held.id === ITEM.CARROT ? BLOCK.CARROT_0 : 0);
-    if (plantAs && hitBlock === BLOCK.FARMLAND &&
+    // Seeds / carrots: plant a crop on top of farmland. Nether wart plants
+    // ONLY on soul sand (its growth then runs through the shared crop ticker).
+    const plantAs = held && (held.id === ITEM.WHEAT_SEEDS ? BLOCK.WHEAT_0
+      : held.id === ITEM.CARROT ? BLOCK.CARROT_0
+        : held.id === ITEM.NETHER_WART ? BLOCK.NETHER_WART_0 : 0);
+    const plantGround = plantAs === BLOCK.NETHER_WART_0 ? BLOCK.SOUL_SAND : BLOCK.FARMLAND;
+    if (plantAs && hitBlock === plantGround &&
         hit && world.getBlock(hit.x, hit.y + 1, hit.z) === BLOCK.AIR) {
       world.setBlock(hit.x, hit.y + 1, hit.z, plantAs);
       if (!isCreative()) inventory.removeOneAt(selected);
@@ -1438,6 +1481,30 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       return;
     }
 
+    // Glass bottle: fill with water (the water cell is NOT consumed).
+    if (held && held.id === ITEM.GLASS_BOTTLE) {
+      const lh = castFromCameraLiquid();
+      if (lh && world.getBlock(lh.x, lh.y, lh.z) === BLOCK.WATER) {
+        if (!isCreative()) {
+          if (held.count === 1) {
+            inventory.slots[selected] = { id: ITEM.WATER_BOTTLE, count: 1 };
+          } else {
+            held.count -= 1;
+            if (inventory.add(ITEM.WATER_BOTTLE, 1) > 0) {
+              drops.spawn(ITEM.WATER_BOTTLE, 1, player.getObject().position.clone());
+            }
+          }
+        } else if (inventory.count(ITEM.WATER_BOTTLE) === 0) {
+          inventory.add(ITEM.WATER_BOTTLE, 1);
+        }
+        triggerSwing();
+        feedback.play('place');
+        refreshHotbar();
+        scheduleSave();
+      }
+      return;
+    }
+
     // Boat item: launch onto a water surface.
     if (held && held.id === ITEM.BOAT) {
       const lh = castFromCameraLiquid();
@@ -1473,11 +1540,28 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       return;
     }
 
+    // Shield: hold right-click to block (released on mouseup / slot change).
+    if (held && held.id === ITEM.SHIELD) {
+      setShieldBlocking(true);
+      return;
+    }
+
+    // Potions: throw (splash flag) or drink. Works in creative too (the item
+    // is simply not consumed there).
+    if (held && isPotionItem(held.id)) {
+      if (held.splash) throwSplashPotion(held);
+      else drinkSelectedPotion();
+      return;
+    }
+
     // Right-click with food selected eats it when no usable block is targeted.
     // Eating is disabled in creative (hunger is pinned at max).
     if (!isCreative() && held && foodValue(held.id) > 0) {
       if (survival.eat(foodValue(held.id))) {
-        if (held.id === ITEM.GOLDEN_APPLE) survival.heal(20); // full golden-apple heal
+        if (held.id === ITEM.GOLDEN_APPLE) {
+          survival.heal(20);                       // full golden-apple heal (kept)
+          effects.add('regeneration', 2, 10);      // + Regeneration II for 10 s
+        }
         inventory.removeOneAt(selected);
         feedback.play('eat');
         triggerSwing();
@@ -1607,7 +1691,10 @@ function releaseBow() {
   if (!isCreative() && inventory.remove(ITEM.ARROW, 1) <= 0) return;
   camera.getWorldPosition(_origin);
   camera.getWorldDirection(_dir);
-  const damage = Math.round(2 + charge * 7);
+  let damage = Math.round(2 + charge * 7);
+  // Power enchantment: +25% arrow damage per level.
+  const power = stackEnchant(heldStack, 'power');
+  if (power > 0) damage = Math.round(damage * (1 + 0.25 * power));
   projectiles.shootArrow(
     _origin.clone().addScaledVector(_dir, 0.4),
     _dir.clone(),
@@ -1621,17 +1708,112 @@ function releaseBow() {
   refreshHotbar();
 }
 
+// ---- Phase 7: potions + shield --------------------------------------------------
+
+// Apply a potion payload ({ effect, amp, dur } or { instant: 'heal', amount })
+// to the player.
+function applyPotionToPlayer(spec) {
+  if (!spec) return;
+  if (spec.instant === 'heal') survival.heal(spec.amount);
+  else effects.add(spec.effect, spec.amp, spec.dur);
+}
+
+// Drink the selected potion: apply its payload, hand the glass bottle back.
+// Water/awkward bottles have no payload but still return the bottle.
+function drinkSelectedPotion() {
+  const held = inventory.get(selected);
+  if (!held || !isPotionItem(held.id) || held.splash) return false;
+  applyPotionToPlayer(POTION_EFFECTS[held.id] || null);
+  if (!isCreative()) inventory.slots[selected] = { id: ITEM.GLASS_BOTTLE, count: 1 };
+  feedback.play('eat');
+  triggerSwing();
+  refreshHotbar();
+  scheduleSave();
+  return true;
+}
+
+// Throw a splash potion: a flask projectile whose break applies the payload
+// in a 3-block radius (player AND mobs). No bottle back (vanilla).
+function throwSplashPotion(stack) {
+  camera.getWorldPosition(_origin);
+  camera.getWorldDirection(_dir);
+  const dir = _dir.clone();
+  dir.y += 0.12; // slight lob
+  dir.normalize();
+  projectiles.shootFlask(
+    _origin.clone().addScaledVector(_dir, 0.4), dir, 14, 0,
+    { fromPlayer: true, payload: POTION_EFFECTS[stack.id] || null },
+  );
+  if (!isCreative()) inventory.removeOneAt(selected);
+  feedback.play('bowShoot');
+  triggerSwing();
+  refreshHotbar();
+  scheduleSave();
+}
+
+// A flask (witch attack or splash potion) broke at `pos`: apply its payload to
+// everything within SPLASH_RADIUS. Instant healing only touches the player —
+// mob healing is intentionally skipped (documented simplification).
+const SPLASH_RADIUS = 3;
+function applySplashAt(pos, payload) {
+  if (!payload) return;
+  if (player.getObject().position.distanceTo(pos) < SPLASH_RADIUS + 0.5) {
+    applyPotionToPlayer(payload);
+    if (payload.effect) survival._setMessage(`${EFFECTS[payload.effect].name} splash!`);
+  }
+  if (payload.effect) {
+    for (const m of mobs.mobs) {
+      if (m.mesh.position.distanceTo(pos) < SPLASH_RADIUS) {
+        mobs.addMobEffect(m, payload.effect, payload.amp, payload.dur);
+      }
+    }
+  }
+}
+
+// ---- Shield blocking --------------------------------------------------------------
+function setShieldBlocking(b) {
+  shieldBlocking = b;
+  player.blocking = b;
+}
+
+// Injected into survival: while blocking, damage arriving from the frontal
+// hemisphere (relative to the camera) is reduced 66%; the prevented amount is
+// charged to the shield's durability. Damage with no source position (falls,
+// lava, poison, starving, drowning) can never be blocked — documented.
+survival.damageModifier = (amount, reason, sourcePos) => {
+  if (!shieldBlocking || !sourcePos) return amount;
+  const heldStack = inventory.get(selected);
+  if (!heldStack || heldStack.id !== ITEM.SHIELD) return amount;
+  camera.getWorldDirection(_dir);
+  const p = player.getObject().position;
+  const sx = sourcePos.x - p.x, sz = sourcePos.z - p.z;
+  const sl = Math.hypot(sx, sz);
+  const fl = Math.hypot(_dir.x, _dir.z);
+  if (sl > 0.001 && fl > 0.001) {
+    const dot = (_dir.x / fl) * (sx / sl) + (_dir.z / fl) * (sz / sl);
+    if (dot <= 0) return amount; // attack from behind the shield arc
+  }
+  const prevented = amount * 0.66;
+  consumeDurability(selected, Math.max(1, Math.round(prevented)));
+  feedback.play('hit');
+  return amount - prevented;
+};
+
 window.addEventListener('mouseup', (e) => {
   if (e.button === 0) {
     primaryDown = false;
     cancelMining();
   }
-  if (e.button === 2) releaseBow();
+  if (e.button === 2) {
+    releaseBow();
+    setShieldBlocking(false);
+  }
 });
 window.addEventListener('blur', () => {
   primaryDown = false;
   cancelMining();
   cancelBowCharge();
+  setShieldBlocking(false);
 });
 
 // Deterministic 0..1 from a voxel position, for the apple drop roll. Mixed with
@@ -1771,8 +1953,30 @@ const enchantListEl = document.getElementById('enchantList');
 const enchantItemEl = document.getElementById('enchantItem');
 const enchantLevelEl = document.getElementById('enchantLevel');
 
+// ---- Status-effect HUD chips (Phase 7) --------------------------------------------
+const effectsRowEl = document.getElementById('effectsRow');
+let effectsSig = '';
+
+function updateEffectChips() {
+  const list = effects.list();
+  const sig = list.map((e) => `${e.id}:${e.amp}:${Math.ceil(e.t)}`).join('|');
+  if (sig === effectsSig) return;
+  effectsSig = sig;
+  effectsRowEl.innerHTML = '';
+  for (const e of list) {
+    const def = EFFECTS[e.id];
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.style.borderColor = def.color;
+    chip.style.color = def.color;
+    chip.textContent = `${def.name}${e.amp > 1 ? ' ' + (ROMAN[Math.min(4, e.amp)] || e.amp) : ''} ${Math.ceil(e.t)}s`;
+    effectsRowEl.appendChild(chip);
+  }
+}
+
 function updateSurvivalHud() {
   const r = survival.ratios;
+  updateEffectChips();
   healthFillEl.style.transform = `scaleX(${r.health})`;
   hungerFillEl.style.transform = `scaleX(${r.hunger})`;
   airFillEl.style.transform = `scaleX(${r.air})`;
@@ -1801,6 +2005,8 @@ function respawnAtSpawn() {
   // Dying in the nether sends you home.
   if (world.skyless) switchDimension(overworld);
   const spawn = world.findSpawn(8, 8);
+  effects.clear();          // death sheds every status effect
+  setShieldBlocking(false);
   survival.respawn(player, spawn);
   world.update(player.getObject().position);
   doSave();
@@ -1821,6 +2027,12 @@ const heldCountEl = heldStackEl.querySelector('.count');
 
 let invOpen = false;
 let held = null;                 // the stack on the cursor: { id, count } | null
+
+// One item split off a cursor stack, keeping tags (splash/durability/
+// enchantments) so a flagged item never loses its state on a right-click split.
+function oneOf(stack) {
+  return { ...stack, count: 1 };
+}
 let craftSize = 2;               // 2 = inventory crafting, 3 = crafting table
 const craft = new Array(9).fill(null);
 
@@ -1903,7 +2115,7 @@ function paintHeld() {
 }
 
 document.addEventListener('mousemove', (e) => {
-  if (!invOpen && !furnaceOpen && !chestOpen) return;
+  if (!invOpen && !furnaceOpen && !chestOpen && !brewOpen && !anvilOpen) return;
   heldStackEl.style.left = `${e.clientX}px`;
   heldStackEl.style.top = `${e.clientY}px`;
 });
@@ -1914,7 +2126,7 @@ function onSlotClick(i, e) {
   if (e && e.button === 2) {
     if (held) {
       if (!slot) {
-        inventory.slots[i] = { id: held.id, count: 1 };
+        inventory.slots[i] = oneOf(held);
         held.count -= 1;
         if (held.count <= 0) held = null;
       } else if (slot.id === held.id && slot.count < itemStackMax(slot.id)) {
@@ -1924,7 +2136,7 @@ function onSlotClick(i, e) {
       }
     } else if (slot) {
       const take = Math.ceil(slot.count / 2);
-      held = { id: slot.id, count: take };
+      held = { ...slot, count: take };
       slot.count -= take;
       if (slot.count <= 0) inventory.slots[i] = null;
     }
@@ -1954,7 +2166,7 @@ function onCraftCellClick(i, e) {
   if (e && e.button === 2) {
     if (held) {
       if (!slot) {
-        craft[i] = { id: held.id, count: 1 };
+        craft[i] = oneOf(held);
         held.count -= 1;
         if (held.count <= 0) held = null;
       } else if (slot.id === held.id && slot.count < itemStackMax(slot.id)) {
@@ -1964,7 +2176,7 @@ function onCraftCellClick(i, e) {
       }
     } else if (slot) {
       const take = Math.ceil(slot.count / 2);
-      held = { id: slot.id, count: take };
+      held = { ...slot, count: take };
       slot.count -= take;
       if (slot.count <= 0) craft[i] = null;
     }
@@ -2033,6 +2245,7 @@ const CREATIVE_EXCLUDED = new Set([
   BLOCK.POWERED_RAIL_ON, BLOCK.REDSTONE_LAMP_ON, BLOCK.NETHER_PORTAL,
   BLOCK.REDSTONE_TORCH_OFF,
   BLOCK.WHEAT_1, BLOCK.WHEAT_2, BLOCK.WHEAT_3, BLOCK.CARROT_1, BLOCK.CARROT_2,
+  BLOCK.NETHER_WART_1, BLOCK.NETHER_WART_2,
 ]);
 
 const CREATIVE_IDS = [
@@ -2162,6 +2375,26 @@ if (new URLSearchParams(location.search).has('debug')) {
       redstone.onBlockPlaced(x, y, z, id, dir ? { dir } : {});
     },
     breakBlockAt: (x, y, z) => breakBlock({ x, y, z }),
+    // ---- Phase 7: effects, brewing, anvil, shield handles ---------------------
+    effects,
+    brewing,
+    xp: xpManager,
+    EFFECTS,
+    anvilResult,
+    setBlocking: (b) => setShieldBlocking(b),
+    get blocking() { return shieldBlocking; },
+    drinkSelected: () => drinkSelectedPotion(),
+    throwSelectedSplash: () => {
+      const s = inventory.get(selected);
+      if (s && isPotionItem(s.id) && s.splash) throwSplashPotion(s);
+    },
+    openBrewScreen: (x, y, z) => openBrewing(x, y, z),
+    openAnvil: () => openAnvilScreen(),
+    get anvilSlots() { return anvilSlots; }, // declared later in the module
+    anvilTake: () => onAnvilTake(),
+    get heldCursor() { return held; },
+    setSelected: (i) => setSelected(i),
+    get selected() { return selected; },
   };
 }
 
@@ -2212,6 +2445,8 @@ function closeInventory() {
 function toggleInventory() {
   if (furnaceOpen) { closeFurnace(); return; }
   if (chestOpen) { closeChest(); return; }
+  if (brewOpen) { closeBrew(); return; }
+  if (anvilOpen) { closeAnvil(); return; }
   if (invOpen) closeInventory();
   else openInventory();
 }
@@ -2308,7 +2543,7 @@ function onFurnaceSlotClick(slotName, e) {
     if (!slot) return;
     if (held && (held.id !== slot.id || held.count + slot.count > itemStackMax(slot.id))) return;
     if (held) held.count += slot.count;
-    else held = { id: slot.id, count: slot.count };
+    else held = { ...slot };
     achievements.trigger({ type: 'smelt', item: slot.id });
     s.output = null;
     refreshFurnace();
@@ -2321,7 +2556,7 @@ function onFurnaceSlotClick(slotName, e) {
       if (slotName === 'fuel' && fuelValue(held.id) <= 0) return;
       if (slotName === 'input' && !smeltResult(held.id)) return;
       if (!slot) {
-        s[slotName] = { id: held.id, count: 1 };
+        s[slotName] = oneOf(held);
         held.count -= 1;
         if (held.count <= 0) held = null;
       } else if (slot.id === held.id && slot.count < itemStackMax(slot.id)) {
@@ -2331,7 +2566,7 @@ function onFurnaceSlotClick(slotName, e) {
       }
     } else if (slot) {
       const take = Math.ceil(slot.count / 2);
-      held = { id: slot.id, count: take };
+      held = { ...slot, count: take };
       slot.count -= take;
       if (slot.count <= 0) s[slotName] = null;
     }
@@ -2363,7 +2598,7 @@ function onFurnaceInvClick(i, e) {
   if (e && e.button === 2) {
     if (held) {
       if (!slot) {
-        inventory.slots[i] = { id: held.id, count: 1 };
+        inventory.slots[i] = oneOf(held);
         held.count -= 1;
         if (held.count <= 0) held = null;
       } else if (slot.id === held.id && slot.count < itemStackMax(slot.id)) {
@@ -2373,7 +2608,7 @@ function onFurnaceInvClick(i, e) {
       }
     } else if (slot) {
       const take = Math.ceil(slot.count / 2);
-      held = { id: slot.id, count: take };
+      held = { ...slot, count: take };
       slot.count -= take;
       if (slot.count <= 0) inventory.slots[i] = null;
     }
@@ -2495,7 +2730,7 @@ function onChestSlotClick(i, e) {
   if (e && e.button === 2) {
     if (held) {
       if (!slot) {
-        slots[i] = { id: held.id, count: 1 };
+        slots[i] = oneOf(held);
         held.count -= 1;
         if (held.count <= 0) held = null;
       } else if (slot.id === held.id && slot.count < itemStackMax(slot.id)) {
@@ -2505,7 +2740,7 @@ function onChestSlotClick(i, e) {
       }
     } else if (slot) {
       const take = Math.ceil(slot.count / 2);
-      held = { id: slot.id, count: take };
+      held = { ...slot, count: take };
       slot.count -= take;
       if (slot.count <= 0) slots[i] = null;
     }
@@ -2532,7 +2767,7 @@ function onChestInvClick(i, e) {
   if (e && e.button === 2) {
     if (held) {
       if (!slot) {
-        inventory.slots[i] = { id: held.id, count: 1 };
+        inventory.slots[i] = oneOf(held);
         held.count -= 1;
         if (held.count <= 0) held = null;
       } else if (slot.id === held.id && slot.count < itemStackMax(slot.id)) {
@@ -2542,7 +2777,7 @@ function onChestInvClick(i, e) {
       }
     } else if (slot) {
       const take = Math.ceil(slot.count / 2);
-      held = { id: slot.id, count: take };
+      held = { ...slot, count: take };
       slot.count -= take;
       if (slot.count <= 0) inventory.slots[i] = null;
     }
@@ -2810,16 +3045,17 @@ function refreshEnchantScreen() {
   }
   const def = itemDef(heldStack.id);
   enchantItemEl.textContent = `Item: ${def.name}`;
-  enchantLevelEl.textContent = `Level: ${xpManager.level} (cost: 3 levels per enchantment)`;
+  enchantLevelEl.textContent = `Level: ${xpManager.level} (level N costs N+2 XP levels)`;
   const available = xpManager.getAvailableEnchantments(heldStack.id);
   enchantListEl.innerHTML = '';
   for (const ench of available) {
     const curLevel = (heldStack.enchantments && heldStack.enchantments[ench.key]) || 0;
     const maxed = curLevel >= ench.maxLevel;
-    const canAfford = xpManager.level >= 3;
+    const cost = enchantCost(curLevel + 1);
+    const canAfford = xpManager.level >= cost;
     const div = document.createElement('div');
     div.className = 'ench-option' + (maxed || !canAfford ? ' disabled' : '');
-    div.innerHTML = `<span>${ench.name} ${curLevel > 0 ? 'Lv' + curLevel + ' → Lv' + (curLevel + 1) : 'I'}</span><span>${maxed ? 'MAX' : '3 Lv'}</span>`;
+    div.innerHTML = `<span>${ench.name} ${curLevel > 0 ? 'Lv' + curLevel + ' → Lv' + (curLevel + 1) : 'I'}</span><span>${maxed ? 'MAX' : cost + ' Lv'}</span>`;
     if (!maxed && canAfford) {
       div.onclick = () => {
         if (xpManager.enchant(heldStack, ench.key)) {
@@ -2838,6 +3074,310 @@ function refreshEnchantScreen() {
 enchantScreenEl.addEventListener('click', (e) => {
   if (e.target === enchantScreenEl) closeEnchantScreen();
 });
+
+// ---- Brewing stand screen (Phase 7; furnace-screen pattern) ---------------------
+const brewScreenEl = document.getElementById('brewScreen');
+const brewIngredientEl = document.getElementById('brewIngredient');
+const brewFuelEl = document.getElementById('brewFuel');
+const brewBottleEls = [
+  document.getElementById('brewBottle0'),
+  document.getElementById('brewBottle1'),
+  document.getElementById('brewBottle2'),
+];
+const brewFlameEl = document.getElementById('brewFlame');
+const brewProgressEl = document.getElementById('brewProgress');
+const brewBackpackGridEl = document.getElementById('brewBackpackGrid');
+const brewHotbarGridEl = document.getElementById('brewHotbarGrid');
+
+brewIngredientEl.innerHTML = '<span class="count"></span>';
+brewFuelEl.innerHTML = '<span class="count"></span>';
+for (const el of brewBottleEls) el.innerHTML = '<span class="count"></span>';
+
+let brewOpen = false;
+let openBrewKey = null;
+
+const brewBackpackCells = [];
+const brewHotbarCells = [];
+for (let i = HOTBAR_SIZE; i < INVENTORY_SIZE; i++) {
+  const cell = makeCell((e) => onBrewInvClick(i, e));
+  brewBackpackCells.push(cell);
+  brewBackpackGridEl.appendChild(cell);
+}
+for (let i = 0; i < HOTBAR_SIZE; i++) {
+  const cell = makeCell((e) => onBrewInvClick(i, e));
+  brewHotbarCells.push(cell);
+  brewHotbarGridEl.appendChild(cell);
+}
+
+function refreshBrew() {
+  if (!openBrewKey) return;
+  const s = brewing.getOrCreate(openBrewKey);
+  paintCell(brewIngredientEl, s.ingredient);
+  paintCell(brewFuelEl, s.fuel);
+  for (let i = 0; i < 3; i++) paintCell(brewBottleEls[i], s.bottles[i]);
+  const active = s.progress > 0;
+  brewFlameEl.style.opacity = s.charges > 0 || (s.fuel && s.fuel.count > 0) ? '1' : '0.3';
+  brewProgressEl.textContent = active
+    ? `${Math.floor((s.progress / BREW_TIME) * 100)}%`
+    : (s.charges > 0 ? `fuel ${s.charges}` : '');
+  for (let i = 0; i < HOTBAR_SIZE; i++) paintCell(brewHotbarCells[i], inventory.get(i));
+  for (let i = HOTBAR_SIZE; i < INVENTORY_SIZE; i++) paintCell(brewBackpackCells[i - HOTBAR_SIZE], inventory.get(i));
+  paintHeld();
+}
+
+// Bottle slots swap WHOLE stacks (bottles/potions never stack, and swapping
+// preserves the splash flag); ingredient/fuel use the furnace-style logic.
+function onBrewBottleClick(i) {
+  if (!openBrewKey) return;
+  const s = brewing.getOrCreate(openBrewKey);
+  const slot = s.bottles[i];
+  if (held) {
+    if (!isBottleSlotItem(held.id) || held.count !== 1) return;
+    s.bottles[i] = held;
+    held = slot || null;
+  } else if (slot) {
+    held = slot;
+    s.bottles[i] = null;
+  }
+  refreshBrew();
+  scheduleSave();
+}
+
+function onBrewSlotClick(slotName, e) {
+  if (!openBrewKey) return;
+  const s = brewing.getOrCreate(openBrewKey);
+  const slot = s[slotName];
+  const accepts = (id) => (slotName === 'fuel' ? id === ITEM.BLAZE_POWDER : isBrewIngredient(id));
+  if (e && e.button === 2) {
+    if (held) {
+      if (!accepts(held.id)) return;
+      if (!slot) {
+        s[slotName] = oneOf(held);
+        held.count -= 1;
+        if (held.count <= 0) held = null;
+      } else if (slot.id === held.id && slot.count < itemStackMax(slot.id)) {
+        slot.count += 1;
+        held.count -= 1;
+        if (held.count <= 0) held = null;
+      }
+    } else if (slot) {
+      const take = Math.ceil(slot.count / 2);
+      held = { ...slot, count: take };
+      slot.count -= take;
+      if (slot.count <= 0) s[slotName] = null;
+    }
+    refreshBrew();
+    scheduleSave();
+    return;
+  }
+  if (held && slot && slot.id === held.id) {
+    const room = itemStackMax(slot.id) - slot.count;
+    const move = Math.min(room, held.count);
+    slot.count += move;
+    held.count -= move;
+    if (held.count <= 0) held = null;
+  } else if (!held || accepts(held.id)) {
+    s[slotName] = held;
+    held = slot;
+  }
+  refreshBrew();
+  scheduleSave();
+}
+
+function onBrewInvClick(i, e) {
+  const slot = inventory.get(i);
+  if (e && e.button === 2) {
+    if (held) {
+      if (!slot) {
+        inventory.slots[i] = oneOf(held);
+        held.count -= 1;
+        if (held.count <= 0) held = null;
+      } else if (slot.id === held.id && slot.count < itemStackMax(slot.id)) {
+        slot.count += 1;
+        held.count -= 1;
+        if (held.count <= 0) held = null;
+      }
+    } else if (slot) {
+      const take = Math.ceil(slot.count / 2);
+      held = { ...slot, count: take };
+      slot.count -= take;
+      if (slot.count <= 0) inventory.slots[i] = null;
+    }
+    refreshBrew();
+    scheduleSave();
+    return;
+  }
+  if (held && slot && slot.id === held.id) {
+    const room = itemStackMax(slot.id) - slot.count;
+    const move = Math.min(room, held.count);
+    slot.count += move;
+    held.count -= move;
+    if (held.count <= 0) held = null;
+  } else {
+    inventory.slots[i] = held;
+    held = slot;
+  }
+  refreshBrew();
+  scheduleSave();
+}
+
+brewIngredientEl.addEventListener('mousedown', (e) => { e.preventDefault(); onBrewSlotClick('ingredient', e); });
+brewFuelEl.addEventListener('mousedown', (e) => { e.preventDefault(); onBrewSlotClick('fuel', e); });
+brewBottleEls.forEach((el, i) => {
+  el.addEventListener('mousedown', (e) => { e.preventDefault(); onBrewBottleClick(i); });
+});
+
+function openBrewing(x, y, z) {
+  if (!survival.alive) return;
+  openBrewKey = dimKey(x, y, z);
+  brewOpen = true;
+  invOpen = false;
+  furnaceOpen = false;
+  chestOpen = false;
+  inventoryEl.classList.add('hidden');
+  furnaceScreenEl.classList.add('hidden');
+  chestScreenEl.classList.add('hidden');
+  if (player.controls.isLocked) player.controls.unlock();
+  brewScreenEl.classList.remove('hidden');
+  refreshBrew();
+}
+
+function closeBrew() {
+  brewOpen = false;
+  if (held) { inventory.addStack(held); held = null; }
+  openBrewKey = null;
+  brewScreenEl.classList.add('hidden');
+  heldStackEl.classList.remove('active');
+  if (survival.alive) overlay.classList.remove('hidden');
+  refreshHotbar();
+  scheduleSave();
+}
+
+// ---- Anvil screen (Phase 7) -------------------------------------------------------
+// The anvil is stateless (unlike furnaces/stands): the two input slots live in
+// this screen and return to the inventory on close. Renaming is skipped —
+// items have no custom names in this game (documented).
+const anvilScreenEl = document.getElementById('anvilScreen');
+const anvilAEl = document.getElementById('anvilA');
+const anvilBEl = document.getElementById('anvilB');
+const anvilOutEl = document.getElementById('anvilOut');
+const anvilCostEl = document.getElementById('anvilCost');
+const anvilBackpackGridEl = document.getElementById('anvilBackpackGrid');
+const anvilHotbarGridEl = document.getElementById('anvilHotbarGrid');
+
+anvilAEl.innerHTML = '<span class="count"></span>';
+anvilBEl.innerHTML = '<span class="count"></span>';
+anvilOutEl.innerHTML = '<span class="count"></span>';
+
+let anvilOpen = false;
+const anvilSlots = [null, null];
+
+const anvilBackpackCells = [];
+const anvilHotbarCells = [];
+for (let i = HOTBAR_SIZE; i < INVENTORY_SIZE; i++) {
+  const cell = makeCell((e) => onAnvilInvClick(i, e));
+  anvilBackpackCells.push(cell);
+  anvilBackpackGridEl.appendChild(cell);
+}
+for (let i = 0; i < HOTBAR_SIZE; i++) {
+  const cell = makeCell((e) => onAnvilInvClick(i, e));
+  anvilHotbarCells.push(cell);
+  anvilHotbarGridEl.appendChild(cell);
+}
+
+function refreshAnvil() {
+  paintCell(anvilAEl, anvilSlots[0]);
+  paintCell(anvilBEl, anvilSlots[1]);
+  const op = anvilResult(anvilSlots[0], anvilSlots[1]);
+  paintCell(anvilOutEl, op ? op.result : null);
+  if (op) {
+    const afford = isCreative() || xpManager.level >= ANVIL_XP_COST;
+    anvilCostEl.textContent = `Cost: ${ANVIL_XP_COST} XP levels${afford ? '' : ` (you have ${xpManager.level})`}`;
+    anvilCostEl.style.color = afford ? '#8bc88b' : '#e08080';
+  } else {
+    anvilCostEl.textContent = anvilSlots[0] || anvilSlots[1]
+      ? 'Combine two of the same item, or add its repair material.' : '';
+    anvilCostEl.style.color = '';
+  }
+  for (let i = 0; i < HOTBAR_SIZE; i++) paintCell(anvilHotbarCells[i], inventory.get(i));
+  for (let i = HOTBAR_SIZE; i < INVENTORY_SIZE; i++) paintCell(anvilBackpackCells[i - HOTBAR_SIZE], inventory.get(i));
+  paintHeld();
+}
+
+// Input slots swap whole stacks (durability/enchantment tags ride along).
+function onAnvilSlotClick(i) {
+  const slot = anvilSlots[i];
+  anvilSlots[i] = held;
+  held = slot;
+  refreshAnvil();
+}
+
+// Take the output: consume the inputs and charge the flat XP cost.
+function onAnvilTake() {
+  const op = anvilResult(anvilSlots[0], anvilSlots[1]);
+  if (!op || held) return;
+  if (!isCreative() && !xpManager.spendLevels(ANVIL_XP_COST)) {
+    survival._setMessage(`Need ${ANVIL_XP_COST} XP levels`);
+    refreshAnvil();
+    return;
+  }
+  for (const [i, used] of [[0, op.consumeA], [1, op.consumeB]]) {
+    const s = anvilSlots[i];
+    s.count -= used;
+    if (s.count <= 0) anvilSlots[i] = null;
+  }
+  held = op.result;
+  feedback.play('place');
+  refreshAnvil();
+  scheduleSave();
+}
+
+function onAnvilInvClick(i, e) {
+  const slot = inventory.get(i);
+  if (held && slot && slot.id === held.id) {
+    const room = itemStackMax(slot.id) - slot.count;
+    const move = Math.min(room, held.count);
+    slot.count += move;
+    held.count -= move;
+    if (held.count <= 0) held = null;
+  } else {
+    inventory.slots[i] = held;
+    held = slot;
+  }
+  refreshAnvil();
+  scheduleSave();
+}
+
+anvilAEl.addEventListener('mousedown', (e) => { e.preventDefault(); onAnvilSlotClick(0); });
+anvilBEl.addEventListener('mousedown', (e) => { e.preventDefault(); onAnvilSlotClick(1); });
+anvilOutEl.addEventListener('mousedown', (e) => { e.preventDefault(); onAnvilTake(); });
+
+function openAnvilScreen() {
+  if (!survival.alive) return;
+  anvilOpen = true;
+  invOpen = false;
+  furnaceOpen = false;
+  chestOpen = false;
+  inventoryEl.classList.add('hidden');
+  furnaceScreenEl.classList.add('hidden');
+  chestScreenEl.classList.add('hidden');
+  if (player.controls.isLocked) player.controls.unlock();
+  anvilScreenEl.classList.remove('hidden');
+  refreshAnvil();
+}
+
+function closeAnvil() {
+  anvilOpen = false;
+  if (held) { inventory.addStack(held); held = null; }
+  for (let i = 0; i < 2; i++) {
+    if (anvilSlots[i]) { inventory.addStack(anvilSlots[i]); anvilSlots[i] = null; }
+  }
+  anvilScreenEl.classList.add('hidden');
+  heldStackEl.classList.remove('active');
+  if (survival.alive) overlay.classList.remove('hidden');
+  refreshHotbar();
+  scheduleSave();
+}
 
 // ---- Trading screen -----------------------------------------------------------
 const tradeScreenEl = document.getElementById('tradeScreen');
@@ -3314,12 +3854,13 @@ function updateHand(dt) {
   const s = swingT > 0 ? Math.sin((1 - swingT / SWING_TIME) * Math.PI) : 0;
   const bob = player.isMoving && player.onGround ? Math.sin(waterTime * 8) * 0.014 : 0;
   const draw = bowCharging ? Math.min(1, bowCharge / BOW_CHARGE_TIME) : 0;
-  handGroup.rotation.x = -0.1 - s * 0.85;
-  handGroup.rotation.y = 0.3 + draw * 0.25;
+  const block = shieldBlocking ? 1 : 0; // raised-shield pose
+  handGroup.rotation.x = -0.1 - s * 0.85 + block * 0.15;
+  handGroup.rotation.y = 0.3 + draw * 0.25 - block * 0.45;
   handGroup.position.set(
-    HAND_POS.x - draw * 0.1,
-    HAND_POS.y + bob - s * 0.06,
-    HAND_POS.z - s * 0.12 + draw * 0.16,
+    HAND_POS.x - draw * 0.1 - block * 0.2,
+    HAND_POS.y + bob - s * 0.06 + block * 0.12,
+    HAND_POS.z - s * 0.12 + draw * 0.16 + block * 0.14,
   );
   handGroup.visible = player.controls.isLocked && survival.alive;
 }
@@ -3333,6 +3874,8 @@ let waterTime = 0;
 let stepTimer = 0;
 let mobSoundTimer = 3;
 let cropTickTimer = 0;
+let brewRefreshAcc = 0;
+let nvBlend = 0;   // night-vision brightness blend 0..1 (lerped, not snapped)
 
 function animate() {
   requestAnimationFrame(animate);
@@ -3357,15 +3900,25 @@ function animate() {
     stepTimer = 0;
   }
   if (player.landedThisFrame && player.lastFallDistance > 1.5) feedback.play('fall');
+  // Status effects tick even while screens are open (potions keep running).
+  if (survival.alive) effects.update(dt);
   survival.update(dt, player, player.controls.isLocked);
   if (!survival.alive && player.controls.isLocked) player.controls.unlock();
+  // Shield blocking only holds while the shield stays selected in-world.
+  if (shieldBlocking) {
+    const heldStack = inventory.get(selected);
+    if (!player.controls.isLocked || !survival.alive || invOpen || furnaceOpen ||
+        chestOpen || brewOpen || anvilOpen || !heldStack || heldStack.id !== ITEM.SHIELD) {
+      setShieldBlocking(false);
+    }
+  }
   updateMining(dt);
 
   // Bow drawing: charge while the right button is held, zoom in slightly and
   // show the charge on the progress bar. Cancelled by UI screens or death.
   if (bowCharging) {
     const heldStack = inventory.get(selected);
-    if (!player.controls.isLocked || !survival.alive || invOpen || furnaceOpen || chestOpen ||
+    if (!player.controls.isLocked || !survival.alive || invOpen || furnaceOpen || chestOpen || brewOpen || anvilOpen ||
         !heldStack || heldStack.id !== ITEM.BOW) {
       cancelBowCharge();
     } else {
@@ -3383,9 +3936,10 @@ function animate() {
   const arrowEvents = projectiles.update(dt, p, mobs.mobs);
   for (const ev of arrowEvents) {
     if (ev.type === 'player') {
-      survival.damage(ev.damage, ev.kind === 'fire' ? 'Fireball' : ev.kind === 'flask' ? 'Witch flask' : 'Arrow hit');
+      survival.damage(ev.damage, ev.kind === 'fire' ? 'Fireball' : 'Arrow hit', ev.pos);
     } else if (ev.type === 'flaskBreak') {
       feedback.smokePuff(ev.pos);
+      applySplashAt(ev.pos, ev.payload);
     } else if (ev.type === 'mob') {
       const result = mobs.damageMob(ev.mob, ev.damage, ev.pos);
       feedback.play(result && result.killed ? 'mobDeath' : 'hit');
@@ -3517,6 +4071,13 @@ function animate() {
 
   world.update(player.getObject().position);
   dayNight.update(dt, player.getObject().position);
+  // Night vision: raise the scene-light floor while active (lerped in/out so
+  // it never pops; baked chunk light is untouched — cheapest approach).
+  nvBlend = Math.max(0, Math.min(1, nvBlend + (effects.has('night_vision') ? dt : -dt) * 2));
+  if (nvBlend > 0) {
+    hemi.intensity = Math.max(hemi.intensity, 0.9 * nvBlend);
+    sun.intensity = Math.max(sun.intensity, 0.35 * nvBlend);
+  }
   mobs.playerInvulnerable = isCreative();
   mobs.update(dt, player, survival, dayNight.t);
   if (mobs.lastExplosion) {
@@ -3577,6 +4138,26 @@ function animate() {
     if (grow.length) {
       for (const g of grow) world.setBlock(g.x, g.y, g.z, g.id);
       scheduleSave();
+    }
+  }
+
+  // Tick every known brewing stand (stands keep brewing while closed).
+  {
+    const brewChanges = brewing.tickAll(dt);
+    if (brewChanges.length) {
+      if (brewChanges.some((c) => c.brewed)) {
+        achievements.trigger({ type: 'brew' });
+        feedback.play('pickup');
+      }
+      scheduleSave();
+    }
+    // The progress readout needs continuous refreshes while the screen is up.
+    if (brewOpen) {
+      brewRefreshAcc += dt;
+      if (brewRefreshAcc >= 0.25 || brewChanges.length) {
+        brewRefreshAcc = 0;
+        refreshBrew();
+      }
     }
   }
 

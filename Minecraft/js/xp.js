@@ -3,7 +3,7 @@
 // =============================================================================
 
 import * as THREE from 'three';
-import { xpForLevel, ENCHANTMENTS, isEnchantable, ITEMS } from './config.js';
+import { xpForLevel, ENCHANTMENTS, enchantCost, isEnchantable, ITEMS } from './config.js';
 
 // Shared glowing-orb sprite texture (radial green/yellow gradient).
 let orbTexture = null;
@@ -120,24 +120,36 @@ export class XPManager {
       if (ench.slot === 'any' ||
           (ench.slot === 'weapon' && it.damage) ||
           (ench.slot === 'tool' && it.tool) ||
-          (ench.slot === 'armor' && it.armor)) {
+          (ench.slot === 'armor' && it.armor) ||
+          (ench.slot === 'bow' && it.bow)) {
         results.push({ key, ...ench });
       }
     }
     return results;
   }
 
+  // Spend `n` XP levels (anvil operations, enchanting). Returns false if the
+  // player cannot afford it. Accumulated partial-level xp is forfeit (vanilla).
+  spendLevels(n) {
+    if (this.level < n) return false;
+    this.level -= n;
+    this.xp = 0;
+    this.xpToNext = xpForLevel(this.level);
+    return true;
+  }
+
+  // Buying enchantment level N costs enchantCost(N) = N+2 XP levels
+  // (I=3 as before, IV=6).
   enchant(stack, enchKey) {
     const ench = ENCHANTMENTS[enchKey];
     if (!ench) return false;
-    if (this.level < 3) return false;
-    if (!stack.enchantments) stack.enchantments = {};
-    const curLevel = stack.enchantments[enchKey] || 0;
+    const curLevel = (stack.enchantments && stack.enchantments[enchKey]) || 0;
     if (curLevel >= ench.maxLevel) return false;
+    const cost = enchantCost(curLevel + 1);
+    if (this.level < cost) return false;
+    if (!stack.enchantments) stack.enchantments = {};
     stack.enchantments[enchKey] = curLevel + 1;
-    this.level = Math.max(0, this.level - 3);
-    this.xp = 0;
-    this.xpToNext = xpForLevel(this.level);
+    this.spendLevels(cost);
     return true;
   }
 

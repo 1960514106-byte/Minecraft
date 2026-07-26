@@ -78,6 +78,12 @@ const BLOCK_COLORS = {
   [BLOCK.HOPPER]: [64, 64, 70],
   [BLOCK.NOTE_BLOCK]: [108, 78, 52],
   [BLOCK.COMPARATOR]: [148, 148, 152],
+  // Phase 7: brewing + anvil.
+  [BLOCK.BREWING_STAND]: [150, 120, 70],
+  [BLOCK.NETHER_WART_0]: [120, 36, 40],
+  [BLOCK.NETHER_WART_1]: [136, 32, 38],
+  [BLOCK.NETHER_WART_2]: [152, 28, 36],
+  [BLOCK.ANVIL]: [58, 58, 64],
 };
 // All 16 wool colours share the registry palette.
 for (const woolId of WOOL_BLOCKS) BLOCK_COLORS[woolId] = WOOL_RGB[woolId];

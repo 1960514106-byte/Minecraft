@@ -190,6 +190,7 @@ export class MobManager {
             vy: Number.isFinite(m.vy) ? m.vy : 0,
             size: m.size || 0,
             saddled: !!m.saddled,
+            effects: Array.isArray(m.effects) ? m.effects : null,
           });
         }
       }
@@ -638,6 +639,10 @@ export class MobManager {
       size: size || 0,
       saddled: !!extra.saddled,
       ridden: false,
+      // Phase 7: lightweight status effects [{ id, amp, t, tick }].
+      effects: Array.isArray(extra.effects)
+        ? extra.effects.filter((e) => e && e.id && e.t > 0).map((e) => ({ id: e.id, amp: e.amp || 1, t: e.t, tick: 0 }))
+        : [],
     };
     if (mob.baby) mesh.scale.setScalar(0.5);
     if (size) mesh.scale.setScalar(0.35 + 0.32 * size); // 1 -> 0.67, 2 -> 0.99, 3 -> 1.31
@@ -728,6 +733,14 @@ export class MobManager {
   }
 
   tryMove(m, vx, vz, dt) {
+    // Slowness (splash potion) scales every kind of mob movement here — the
+    // single gate all AI handlers move through.
+    const slow = this.mobEffectLevel(m, 'slowness');
+    if (slow > 0) {
+      const mul = Math.max(0.1, 1 - 0.15 * slow);
+      vx *= mul;
+      vz *= mul;
+    }
     const p = m.mesh.position;
     const curY = this.groundY(p.x, p.z, p.y);
     const nx = p.x + vx * dt;
@@ -993,6 +1006,9 @@ export class MobManager {
         }
       }
       if (m.aggroTimer > 0) m.aggroTimer -= dt;
+      // Status effects (poison may kill the mob's mesh entry via damageMob —
+      // but poison floors at 1 HP, so the mob always survives the tick).
+      this._tickMobEffects(m, dt);
       if (m.loveTimer > 0) {
         m.loveTimer -= dt;
         if (this.onEffect && Math.random() < dt * 2) this.onEffect('hearts', p.clone());
@@ -1085,15 +1101,60 @@ export class MobManager {
   }
 
   // Melee hit on the player when adjacent, on the shared attack timer.
+  // Passes the mob's position as the damage source (shield blocking checks
+  // the frontal hemisphere); a weakened mob (splash potion) hits for less.
   _tryMelee(m, dist, playerPos, canSeePlayer, survival, damage, label, dt) {
     m.attackTimer -= dt;
     const vertical = Math.abs((playerPos.y - 1.62) - m.mesh.position.y);
     if (dist < ATTACK_DISTANCE + (m.type === 'boss' ? 2 : 0) && vertical < 2 && canSeePlayer && m.attackTimer <= 0) {
       m.attackTimer = ATTACK_INTERVAL;
-      survival.damage(damage, label);
+      const weak = this.mobEffectLevel(m, 'weakness');
+      survival.damage(Math.max(1, damage - 2 * weak), label, m.mesh.position);
       return true;
     }
     return false;
+  }
+
+  // ---- Phase 7: lightweight mob status effects --------------------------------
+  // Mobs carry a plain array m.effects = [{ id, amp, t, tick }] — only
+  // poison (periodic damage), slowness (tryMove scale) and weakness (melee
+  // reduction) are honoured; everything else is ignored by design.
+  addMobEffect(m, id, amp = 1, dur = 15) {
+    if (!m.effects) m.effects = [];
+    const cur = m.effects.find((e) => e.id === id);
+    if (cur) {
+      cur.amp = Math.max(cur.amp, amp);
+      cur.t = Math.max(cur.t, dur);
+    } else {
+      m.effects.push({ id, amp, t: dur, tick: 0 });
+    }
+  }
+
+  mobEffectLevel(m, id) {
+    if (!m.effects) return 0;
+    const e = m.effects.find((x) => x.id === id);
+    return e ? e.amp : 0;
+  }
+
+  // Tick a mob's effect timers; poison damages on its interval but never
+  // kills (floor 1 HP, vanilla rule).
+  _tickMobEffects(m, dt) {
+    if (!m.effects || m.effects.length === 0) return;
+    for (let i = m.effects.length - 1; i >= 0; i--) {
+      const e = m.effects[i];
+      e.t -= dt;
+      if (e.t <= 0) {
+        m.effects.splice(i, 1);
+        continue;
+      }
+      if (e.id === 'poison') {
+        e.tick = (e.tick || 0) + dt;
+        if (e.tick >= 1.25 / e.amp) {
+          e.tick = 0;
+          if (m.health > 1) this.damageMob(m, 1, m.mesh.position);
+        }
+      }
+    }
   }
 
   // Shared hostile prelude (creative check + line of sight), then dispatch to
@@ -1547,7 +1608,7 @@ export class MobManager {
       m.attackTimer -= dt;
       if (dist < ATTACK_DISTANCE && m.attackTimer <= 0) {
         m.attackTimer = ATTACK_INTERVAL;
-        if (this.onWolfBite) this.onWolfBite(3);
+        if (this.onWolfBite) this.onWolfBite(3, m.mesh.position);
       }
     } else {
       this._wander(m, dt);
@@ -1599,7 +1660,7 @@ export class MobManager {
       m.slamTimer = (m.slamTimer || 0) - dt;
       if (m.slamTimer <= 0) {
         m.slamTimer = 1.5;
-        survival.damage(6, 'Overlord slam');
+        survival.damage(6, 'Overlord slam', p);
         const away = playerPos.clone().sub(p).normalize();
         player.velocity.x += away.x * 9;
         player.velocity.y += 5;
@@ -1728,7 +1789,7 @@ export class MobManager {
     const dist = playerPos.distanceTo(p);
     if (dist < r + 2) {
       const dmg = Math.max(1, Math.round(12 * (1 - dist / (r + 3))));
-      survival.damage(dmg, 'Creeper explosion');
+      survival.damage(dmg, 'Creeper explosion', p);
     }
   }
 
@@ -1749,6 +1810,9 @@ export class MobManager {
       if (m.vy) o.vy = m.vy; // optional; restores mid-air mobs (defaults to 0)
       if (m.size) o.size = m.size;      // slimes / magma cubes
       if (m.saddled) o.saddled = true;  // horses
+      if (m.effects && m.effects.length) {
+        o.effects = m.effects.map((e) => ({ id: e.id, amp: e.amp, t: e.t }));
+      }
       return o;
     });
   }

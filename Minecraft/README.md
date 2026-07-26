@@ -127,11 +127,46 @@ vendored locally under `js/vendor/`.
   armor, redstone components, rails and more
 - Furnaces smelt in the background, even after their UI closes
 - Chests (27 slots), enchanting table (Sharpness / Efficiency / Protection /
-  Unbreaking, powered by XP levels), XP orbs that drift toward you
+  Unbreaking / Power up to level IV — buying level N costs N+2 XP levels),
+  XP orbs that drift toward you
+- **Anvil**: combine two damaged same-type items (durabilities add +12% of max,
+  enchantments merge at max level) or repair with the raw material (25% of max
+  per unit) — flat cost of 2 XP levels per operation. No renaming (items have
+  no custom names); armor has no durability, so only tools/weapons/shields
+  repair
+- **Shield** (6 planks + iron ingot): hold right-click to block — movement
+  drops to 30%, frontal damage (mob melee, arrows, fireballs, explosions) is
+  reduced 66% and the prevented damage wears the shield instead. Damage
+  without a source position (falls, lava, poison) is never blocked
 - Farming: hoe grass into farmland, plant wheat/carrots, bone meal, bake bread
 - Beds set your respawn and skip the night
 - Bow with charge-up draw, TNT with fuses and chained explosions
-- **28 achievements** with toasts and a progress page (press `J`)
+- **33 achievements** with toasts and a progress page (press `J`)
+
+### Brewing & potions
+- **Status effects** with HUD chips + timers: Speed, Slowness, Strength,
+  Weakness, Regeneration, Poison (never lethal — floors at 1 HP), Fire
+  Resistance, Night Vision (brightens the scene-light floor), Water Breathing,
+  plus instant Healing. Golden apples now also grant Regeneration II (10 s)
+- **Brewing stand** (blaze rod + 3 cobblestone; rendered as a cross-sprite —
+  no 3D stand model yet): 3 bottle slots, 1 ingredient slot, blaze-powder
+  fuel (1 powder = 20 brews), 20 s per brew, keeps brewing while closed
+- Glass bottles (3 glass in a V) fill on water without consuming the cell;
+  water bottle + nether wart → Awkward, then sugar → Speed, blaze powder →
+  Strength, golden carrot → Night Vision, magma cream → Fire Resistance,
+  spider eye → Poison, ghast tear → Regeneration, raw fish → Water Breathing
+  (pufferfish stand-in)
+- Fermented spider eye (sugar + spider eye) corrupts: Speed→Slowness,
+  Strength→Weakness, Healing→Poison
+- **Splash potions**: brew any effect potion with gunpowder — the splash
+  state is a stack FLAG (same item id, "Splash" tooltip); throw it for a
+  3-block-radius effect on the player and mobs (mobs honour poison, slowness
+  and weakness)
+- **Nether wart** grows on soul sand only (3 stages): find it in fortress
+  chests and the fortress soul-sand garden
+- Witches now throw real poison splash flasks (amp 1, 15 s) instead of
+  flat-damage vials
+- Drinking returns the empty bottle; effects persist through save/reload
 
 ### Presentation
 - Procedurally painted texture atlas (no image assets at all)
@@ -198,6 +233,11 @@ offline - no internet connection or CDN is required. See the import map in
 | Sleep / set respawn | Right click a bed |
 | Till soil / plant seeds | Right click with a hoe / with seeds |
 | Eat food | Right click while holding food |
+| Drink a potion / throw a splash potion | Right click while holding it |
+| Block with a shield | Hold right click with the shield selected |
+| Open brewing stand / anvil | Right click it |
+| Fill a glass bottle | Right click water with the bottle |
+| Plant nether wart | Right click soul sand with nether wart |
 | Select hotbar slot | `1`-`9` or mouse wheel |
 | Inventory / craft | `E` |
 | Achievements page | `J` |
@@ -234,6 +274,9 @@ js/
   projectiles.js  # arrows and fireballs
   redstone.js     # tick-based redstone: wire, button, plate, repeater, piston...
   furnace.js      # persistent background smelting
+  brewing.js      # persistent background brewing (stands, recipes, splash flag)
+  effects.js      # timed status effects (player EffectManager + registry)
+  anvil.js        # pure anvil combine/repair logic
   chest.js        # per-block chest storage
   dispensers.js   # per-block 9-slot storage for dispensers AND droppers
   hoppers.js      # per-block hopper storage (5 slots + spout direction)
@@ -241,7 +284,7 @@ js/
   crafting.js     # shapeless, 2x2 and 3x3 recipes
   drops.js        # dropped item entities
   xp.js           # XP orbs, levels, enchanting
-  achievements.js # 28 achievements + toasts
+  achievements.js # 33 achievements + toasts
   minimap.js      # top-down terrain minimap
   weather.js      # rain/snow particles
   feedback.js     # synthesized audio + particle effects
@@ -296,6 +339,11 @@ Rails x16: 6 iron + stick    Powered rails x6: 6 gold + stick + redstone
 Minecart: 5 iron (U shape)   Flint & steel: iron + gravel
 Golden apple: 8 gold + apple
 Overlord Sigil: 4 blaze rods + 4 obsidian + 1 diamond
+Brewing stand: blaze rod over 3 cobblestone    Glass bottles x3: 3 glass in a V
+Blaze powder x2: 1 blaze rod (shapeless)
+Fermented spider eye: sugar + spider eye (shapeless)
+Anvil: 3 iron blocks over 4 iron ingots
+Shield: 6 planks + iron ingot (top middle)
 ```
 
 ## Possible extensions
@@ -303,5 +351,5 @@ Overlord Sigil: 4 blaze rods + 4 obsidian + 1 diamond
 - Web Worker chunk pipeline (generation + lighting + meshing off the main thread)
 - Flowing water/lava dynamics
 - Splitting `main.js` into focused UI/interaction modules
-- More nether biomes, potions/brewing
+- More nether biomes
 - Multiplayer

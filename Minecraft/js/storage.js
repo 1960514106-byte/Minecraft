@@ -155,7 +155,17 @@ function v11to12(save) {
   return save;
 }
 
-const MIGRATIONS = { 7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11, 11: v11to12 };
+// v12 -> v13: Phase 7 status effects + brewing. The player effect list and the
+// per-block brewing-stand map default to empty; potion stacks and mob effect
+// arrays are new optional fields that default when absent.
+function v12to13(save) {
+  if (!Array.isArray(save.effects)) save.effects = [];
+  if (!save.brewingStands) save.brewingStands = {};
+  save.version = 13;
+  return save;
+}
+
+const MIGRATIONS = { 7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11, 11: v11to12, 12: v12to13 };
 
 export function migrateSave(save) {
   if (!save || typeof save.version !== 'number') return save;

@@ -16,6 +16,8 @@ import {
   WOOL_BLOCKS, WOOL_RGB, breakDuration, toolSpeedTier,
   fluidLevel, isFluidFalling, fluidMeta, isFluidSource, fluidMaxLevel,
   itemStackMax, itemMaxDurability, foodValue,
+  ENCHANTMENTS, enchantCost, isEnchantable, POTION_EFFECTS, isPotionItem,
+  REPAIR_MATERIAL, nextCropStage, isCropBlock, NETHER_WART_STAGES,
 } from '../Minecraft/js/config.js';
 import { FluidSim } from '../Minecraft/js/fluids.js';
 import {
@@ -31,6 +33,11 @@ import { getMode, setMode, isCreative, setOnModeChange } from '../Minecraft/js/g
 import { Redstone } from '../Minecraft/js/redstone.js';
 import { HopperManager, HOPPER_SLOTS, insertStack } from '../Minecraft/js/hoppers.js';
 import { DispenserManager, DISPENSER_SLOTS } from '../Minecraft/js/dispensers.js';
+import { EffectManager, EFFECTS } from '../Minecraft/js/effects.js';
+import {
+  BrewingManager, brewResult, isBrewIngredient, BREW_MAP, SPLASHABLE, BREW_TIME,
+} from '../Minecraft/js/brewing.js';
+import { anvilResult, ANVIL_XP_COST } from '../Minecraft/js/anvil.js';
 
 let failures = 0;
 function assert(cond, msg) {
@@ -339,7 +346,7 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 12, 'migrated save version is 12 (v7 chains through the whole ladder)');
+  assert(m.version === 13, 'migrated save version is 13 (v7 chains through the whole ladder)');
   assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
@@ -360,17 +367,17 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 12 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+  assert(v3.version === 13 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
     'v3 save migrates through the whole chain');
 
   // A v8 save gains the mode field, then the fluids/boats defaults.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 12 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
-    'v8 save upgrades to v12 with mode survival, ids untouched');
+  assert(v8.version === 13 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+    'v8 save upgrades to v13 with mode survival, ids untouched');
 
   // v9 -> v10: fluids/boats defaults appear, everything else untouched.
   const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
-  assert(v9.version === 12 && v9.mode === 'creative', 'v9 save upgrades to v12 (mode preserved)');
+  assert(v9.version === 13 && v9.mode === 'creative', 'v9 save upgrades to v13 (mode preserved)');
   assert(v9.fluids && Array.isArray(v9.fluids.active) && v9.fluids.active.length === 0,
     'v9 -> v10 adds an empty fluids state');
   assert(Array.isArray(v9.boats) && v9.boats.length === 0, 'v9 -> v10 adds an empty boats list');
@@ -382,8 +389,8 @@ function grid(...entries) {
     fluids: { active: ['1,2,3'] }, boats: [{ x: 1, y: 20, z: 3 }],
     mobs: [{ type: 'pig', x: 1, y: 20, z: 3, health: 8, baby: true, growTimer: 5 }],
   });
-  assert(v10.version === 12 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
-    'v10 save upgrades to v12 (fluids/boats preserved)');
+  assert(v10.version === 13 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
+    'v10 save upgrades to v13 (fluids/boats preserved)');
   assert(v10.mobs.length === 1 && v10.mobs[0].type === 'pig' && v10.mobs[0].baby === true,
     'v10 -> v11 leaves saved mobs untouched');
 
@@ -393,14 +400,14 @@ function grid(...entries) {
     version: 11, seed: 1337, mobs: [{ type: 'slime', size: 2, x: 0, z: 0 }],
     redstone: { levers: ['1,2,3'], pistons: {}, repeaters: {} },
   });
-  assert(v11.version === 12 && v11.mobs[0].size === 2, 'v11 save upgrades to v12');
+  assert(v11.version === 13 && v11.mobs[0].size === 2, 'v11 save upgrades to v13');
   assert(v11.dispensers && Object.keys(v11.dispensers).length === 0,
     'v11 -> v12 adds an empty dispensers map');
   assert(v11.hoppers && Object.keys(v11.hoppers).length === 0,
     'v11 -> v12 adds an empty hoppers map');
   assert(v11.redstone.levers[0] === '1,2,3', 'v11 -> v12 leaves redstone state untouched');
   const v12 = migrateSave({ version: 12, seed: 1337, hoppers: { 'N|1,2,3': { dir: [0, -1, 0], slots: [] } } });
-  assert(v12.version === 12 && v12.hoppers['N|1,2,3'], 'v12 save is a no-op');
+  assert(v12.version === 13 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to v13 with hoppers intact');
 }
 
 // ---- Phase 3: buckets, boats, fishing, fluids ----------------------------------------------
@@ -955,6 +962,233 @@ function grid(...entries) {
     tick(r4);
     assert(r4.torches.has('5,20,5'), 'first tick adopts pre-Phase-6 torches from world.edits');
   }
+}
+
+// ---- Phase 7: status effects ------------------------------------------------------------
+{
+  const fx = new EffectManager();
+  assert(fx.add('speed', 1, 10) === true, 'add() accepts a known effect');
+  assert(fx.add('nonsense', 1, 10) === false, 'add() rejects unknown effect ids');
+  assert(fx.has('speed') && fx.level('speed') === 1 && fx.timeLeft('speed') === 10,
+    'has/level/timeLeft after add');
+  assert(fx.level('poison') === 0 && !fx.has('poison'), 'level() is 0 for absent effects');
+  // Refresh: stronger amp wins, duration never shortens.
+  fx.add('speed', 2, 5);
+  assert(fx.level('speed') === 2 && fx.timeLeft('speed') === 10, 'refresh keeps max amp AND max duration');
+  fx.add('speed', 1, 30);
+  assert(fx.level('speed') === 2 && fx.timeLeft('speed') === 30, 'weaker re-add keeps amp, extends duration');
+  // Expiry via update().
+  fx.add('poison', 1, 1);
+  fx.update(0.5);
+  assert(fx.has('poison') && Math.abs(fx.timeLeft('poison') - 0.5) < 1e-9, 'update ticks timers down');
+  const expired = fx.update(0.6);
+  assert(expired === true && !fx.has('poison') && fx.has('speed'), 'update expires only finished effects');
+  // Serialize/restore roundtrip.
+  fx.add('night_vision', 1, 42);
+  const snap = fx.serialize();
+  const fx2 = new EffectManager(JSON.parse(JSON.stringify(snap)));
+  assert(fx2.has('speed') && fx2.level('speed') === 2 && fx2.has('night_vision'),
+    'serialize/restore keeps active effects');
+  fx2.clear();
+  assert(fx2.list().length === 0, 'clear() empties the manager');
+  // Registry: every EFFECTS entry has a name + colour; every timed potion
+  // payload maps to a registered effect.
+  for (const [id, def] of Object.entries(EFFECTS)) {
+    assert(typeof def.name === 'string' && /^#/.test(def.color), `EFFECTS.${id} has name + colour`);
+  }
+  for (const [pid, spec] of Object.entries(POTION_EFFECTS)) {
+    assert(defined(Number(pid)), `POTION_EFFECTS key ${pid} is a defined item`);
+    if (spec.instant) {
+      assert(spec.instant === 'heal' && spec.amount > 0, `instant potion ${pid} well-formed`);
+    } else {
+      assert(EFFECTS[spec.effect] && spec.amp >= 1 && spec.dur > 0,
+        `potion ${pid} maps to a registered effect`);
+    }
+  }
+  assert(isPotionItem(ITEM.WATER_BOTTLE) && isPotionItem(ITEM.POTION_SPEED) && !isPotionItem(ITEM.BREAD),
+    'isPotionItem covers bottles, not food');
+}
+
+// ---- Phase 7: brewing --------------------------------------------------------------------
+{
+  // Table integrity: every ingredient/base/result id is defined.
+  for (const [ing, conversions] of Object.entries(BREW_MAP)) {
+    assert(defined(Number(ing)), `brew ingredient ${ing} is defined`);
+    for (const [base, out] of Object.entries(conversions)) {
+      assert(defined(Number(base)) && defined(out), `brew ${base} -> ${out} ids defined`);
+      assert(POTION_EFFECTS[out] || out === ITEM.POTION_AWKWARD,
+        `brew result ${out} is awkward or has a payload`);
+    }
+  }
+  for (const id of SPLASHABLE) assert(POTION_EFFECTS[id], `splashable ${id} has a payload`);
+
+  // Recipe chain: water -> awkward -> speed; ferment speed -> slowness.
+  const awk = brewResult({ id: ITEM.WATER_BOTTLE, count: 1 }, ITEM.NETHER_WART);
+  assert(awk && awk.id === ITEM.POTION_AWKWARD, 'water + nether wart -> awkward');
+  const speed = brewResult({ id: ITEM.POTION_AWKWARD, count: 1 }, ITEM.SUGAR);
+  assert(speed && speed.id === ITEM.POTION_SPEED, 'awkward + sugar -> speed');
+  const slow = brewResult({ id: ITEM.POTION_SPEED, count: 1 }, ITEM.FERMENTED_SPIDER_EYE);
+  assert(slow && slow.id === ITEM.POTION_SLOWNESS, 'fermented corrupts speed -> slowness');
+  assert(brewResult({ id: ITEM.POTION_STRENGTH, count: 1 }, ITEM.FERMENTED_SPIDER_EYE).id === ITEM.POTION_WEAKNESS,
+    'fermented corrupts strength -> weakness');
+  assert(brewResult({ id: ITEM.POTION_HEALING, count: 1 }, ITEM.FERMENTED_SPIDER_EYE).id === ITEM.POTION_POISON,
+    'fermented corrupts healing -> poison');
+  // Gunpowder: splash FLAG, same id; never on water/awkward, never twice.
+  const splash = brewResult({ id: ITEM.POTION_SPEED, count: 1 }, ITEM.GUNPOWDER);
+  assert(splash && splash.id === ITEM.POTION_SPEED && splash.splash === true,
+    'gunpowder sets the splash flag (same item id)');
+  assert(brewResult({ id: ITEM.WATER_BOTTLE, count: 1 }, ITEM.GUNPOWDER) === null,
+    'water bottles cannot become splash');
+  assert(brewResult({ id: ITEM.POTION_SPEED, count: 1, splash: true }, ITEM.GUNPOWDER) === null,
+    'splash potions cannot be re-splashed');
+  // Splash flag carries through fermenting.
+  const splashSlow = brewResult({ id: ITEM.POTION_SPEED, count: 1, splash: true }, ITEM.FERMENTED_SPIDER_EYE);
+  assert(splashSlow && splashSlow.id === ITEM.POTION_SLOWNESS && splashSlow.splash === true,
+    'ferment keeps the splash flag');
+  assert(isBrewIngredient(ITEM.NETHER_WART) && isBrewIngredient(ITEM.GUNPOWDER) && !isBrewIngredient(ITEM.BREAD),
+    'isBrewIngredient covers the table + gunpowder');
+
+  // Manager: needs fuel, brews after BREW_TIME, consumes ingredient + charge.
+  const bm = new BrewingManager();
+  const s = bm.getOrCreate('1,2,3');
+  s.bottles[0] = { id: ITEM.WATER_BOTTLE, count: 1 };
+  s.ingredient = { id: ITEM.NETHER_WART, count: 2 };
+  bm.tickAll(BREW_TIME + 1);
+  assert(s.bottles[0].id === ITEM.WATER_BOTTLE && s.progress === 0,
+    'no blaze powder -> no brewing');
+  s.fuel = { id: ITEM.BLAZE_POWDER, count: 1 };
+  const ev = bm.tickAll(BREW_TIME + 1);
+  assert(ev.length === 1 && ev[0].brewed === true, 'tickAll reports the brew');
+  assert(s.bottles[0].id === ITEM.POTION_AWKWARD, 'bottle became awkward potion');
+  assert(s.ingredient.count === 1, 'one ingredient consumed');
+  assert(s.fuel === null && s.charges === 19, 'blaze powder charged 20 brews, one spent');
+  // Second brew: awkward + sugar in all three slots at once.
+  s.bottles[1] = { id: ITEM.POTION_AWKWARD, count: 1 };
+  s.bottles[2] = { id: ITEM.WATER_BOTTLE, count: 1 }; // no recipe with sugar
+  s.ingredient = { id: ITEM.SUGAR, count: 1 };
+  bm.tickAll(BREW_TIME + 1);
+  assert(s.bottles[0].id === ITEM.POTION_SPEED && s.bottles[1].id === ITEM.POTION_SPEED,
+    'both awkward bottles brewed to speed');
+  assert(s.bottles[2].id === ITEM.WATER_BOTTLE, 'non-matching bottle untouched');
+  assert(s.ingredient === null, 'sugar consumed');
+  // Serialize/restore + remove spill.
+  const bm2 = new BrewingManager(JSON.parse(JSON.stringify(bm.serialize())));
+  const s2 = bm2.getOrCreate('1,2,3');
+  assert(s2.bottles[0].id === ITEM.POTION_SPEED && s2.charges === 18,
+    'brewing serialize/restore keeps bottles + charges');
+  const spilled = bm2.remove('1,2,3');
+  assert(spilled.length === 3 && bm2.stands.size === 0, 'remove spills the three bottles');
+
+  // Recipes: stand, bottles, blaze powder, fermented eye, anvil, shield.
+  const stand = craftResult(grid(
+    [1, ITEM.BLAZE_ROD],
+    [3, BLOCK.COBBLESTONE], [4, BLOCK.COBBLESTONE], [5, BLOCK.COBBLESTONE],
+  ), 3);
+  assert(stand && stand.id === BLOCK.BREWING_STAND, 'blaze rod + 3 cobble -> brewing stand');
+  const bottles = craftResult(grid([0, BLOCK.GLASS], [2, BLOCK.GLASS], [4, BLOCK.GLASS]), 3);
+  assert(bottles && bottles.id === ITEM.GLASS_BOTTLE && bottles.count === 3,
+    '3 glass in a V -> 3 bottles');
+  const powder = craftResult(grid([0, ITEM.BLAZE_ROD]), 2);
+  assert(powder && powder.id === ITEM.BLAZE_POWDER && powder.count === 2, '1 rod -> 2 blaze powder');
+  const eye = craftResult(grid([0, ITEM.SUGAR], [1, ITEM.SPIDER_EYE]), 2);
+  assert(eye && eye.id === ITEM.FERMENTED_SPIDER_EYE, 'sugar + spider eye -> fermented eye');
+  const anvil = craftResult(grid(
+    [0, BLOCK.IRON_BLOCK], [1, BLOCK.IRON_BLOCK], [2, BLOCK.IRON_BLOCK],
+    [4, ITEM.IRON_INGOT],
+    [6, ITEM.IRON_INGOT], [7, ITEM.IRON_INGOT], [8, ITEM.IRON_INGOT],
+  ), 3);
+  assert(anvil && anvil.id === BLOCK.ANVIL, '3 iron blocks + 4 ingots -> anvil');
+  const shield = craftResult(grid(
+    [0, BLOCK.PLANK], [1, ITEM.IRON_INGOT], [2, BLOCK.PLANK],
+    [3, BLOCK.PLANK], [4, BLOCK.PLANK], [5, BLOCK.PLANK],
+    [7, BLOCK.PLANK],
+  ), 3);
+  assert(shield && shield.id === ITEM.SHIELD, '6 planks + iron ingot Y -> shield');
+  assert(itemMaxDurability(ITEM.SHIELD) === 336 && itemStackMax(ITEM.SHIELD) === 1,
+    'shield durability 336, stack 1');
+
+  // Nether wart crop chain + registry sanity.
+  assert(NETHER_WART_STAGES.length === 3 && NETHER_WART_STAGES.every((id) => BLOCKS[id]),
+    'nether wart stages registered');
+  assert(nextCropStage(BLOCK.NETHER_WART_0) === BLOCK.NETHER_WART_1 &&
+    nextCropStage(BLOCK.NETHER_WART_2) === 0, 'wart joins the crop chains');
+  assert(isCropBlock(BLOCK.NETHER_WART_1), 'wart stages count as crops');
+  assert(blockDrop(BLOCK.NETHER_WART_2)[0].id === ITEM.NETHER_WART &&
+    blockDrop(BLOCK.NETHER_WART_2)[0].count === 3, 'mature wart drops 3');
+  assert(blockModel(BLOCK.BREWING_STAND) === 'cross' && BLOCKS[BLOCK.BREWING_STAND].solid === true,
+    'brewing stand: solid cross (right-clickable)');
+}
+
+// ---- Phase 7: enchanting expansion + anvil -------------------------------------------------
+{
+  for (const key of ['sharpness', 'efficiency', 'protection', 'unbreaking', 'power']) {
+    assert(ENCHANTMENTS[key] && ENCHANTMENTS[key].maxLevel === 4, `${key} maxes at IV`);
+  }
+  assert(ENCHANTMENTS.power.slot === 'bow', 'power is a bow enchantment');
+  assert(isEnchantable(ITEM.BOW), 'bows are enchantable now');
+  assert(!isEnchantable(ITEM.SHIELD), 'shields are not enchantable (documented)');
+  assert(enchantCost(1) === 3 && enchantCost(4) === 6, 'level N costs N+2 (I=3, IV=6)');
+
+  // REPAIR_MATERIAL: every key/value is a defined id, and the obvious pairs hold.
+  for (const [item, mat] of Object.entries(REPAIR_MATERIAL)) {
+    assert(defined(Number(item)) && defined(mat), `repair pair ${item} -> ${mat} defined`);
+    assert(itemMaxDurability(Number(item)) > 0, `repairable ${item} has durability`);
+  }
+  assert(REPAIR_MATERIAL[ITEM.IRON_PICKAXE] === ITEM.IRON_INGOT &&
+    REPAIR_MATERIAL[ITEM.DIAMOND_SWORD] === ITEM.DIAMOND &&
+    REPAIR_MATERIAL[ITEM.SHIELD] === BLOCK.PLANK, 'repair material pairs');
+
+  // anvilResult: combine two damaged iron pickaxes (+12% bonus, capped).
+  const combine = anvilResult(
+    { id: ITEM.IRON_PICKAXE, count: 1, durability: 100, enchantments: { efficiency: 2 } },
+    { id: ITEM.IRON_PICKAXE, count: 1, durability: 80, enchantments: { efficiency: 1, unbreaking: 3 } },
+  );
+  assert(combine && combine.result.id === ITEM.IRON_PICKAXE, 'combine yields one pickaxe');
+  assert(combine.result.durability === 100 + 80 + Math.floor(250 * 0.12),
+    'combined durability adds a 12% bonus');
+  assert(combine.result.enchantments.efficiency === 2 && combine.result.enchantments.unbreaking === 3,
+    'combine merges enchantments taking max levels');
+  assert(combine.consumeA === 1 && combine.consumeB === 1, 'combine consumes both inputs');
+  const capped = anvilResult(
+    { id: ITEM.IRON_PICKAXE, count: 1, durability: 240 },
+    { id: ITEM.IRON_PICKAXE, count: 1, durability: 240 },
+  );
+  assert(capped.result.durability === 250, 'combined durability caps at max');
+  // Material repair: 25% per unit, only what is needed is consumed.
+  const repair = anvilResult(
+    { id: ITEM.IRON_PICKAXE, count: 1, durability: 10 },
+    { id: ITEM.IRON_INGOT, count: 5 },
+  );
+  assert(repair && repair.result.durability === 250 && repair.consumeB === 4,
+    'material repair: 4 ingots fill 240 missing durability (62/unit)');
+  const repairSwap = anvilResult(
+    { id: ITEM.IRON_INGOT, count: 5 },
+    { id: ITEM.IRON_PICKAXE, count: 1, durability: 200 },
+  );
+  assert(repairSwap && repairSwap.consumeA === 1 && repairSwap.result.durability === 250,
+    'material repair works with swapped slots');
+  assert(anvilResult({ id: ITEM.IRON_PICKAXE, count: 1, durability: 250 }, { id: ITEM.IRON_INGOT, count: 1 }) === null,
+    'a full-durability item cannot be repaired');
+  assert(anvilResult({ id: ITEM.IRON_PICKAXE, count: 1, durability: 10 }, { id: ITEM.DIAMOND, count: 1 }) === null,
+    'wrong material is rejected');
+  assert(anvilResult(null, { id: ITEM.IRON_INGOT, count: 1 }) === null, 'anvil needs both inputs');
+  assert(ANVIL_XP_COST === 2, 'anvil operations cost 2 levels flat');
+}
+
+// ---- Phase 7: migration v12 -> v13 ----------------------------------------------------------
+{
+  const v12b = migrateSave({ version: 12, seed: 1337, hoppers: {}, dispensers: {} });
+  assert(v12b.version === 13, 'v12 save upgrades to v13');
+  assert(Array.isArray(v12b.effects) && v12b.effects.length === 0, 'v12 -> v13 adds empty effects');
+  assert(v12b.brewingStands && Object.keys(v12b.brewingStands).length === 0,
+    'v12 -> v13 adds empty brewingStands');
+  const v13 = migrateSave({
+    version: 13, seed: 1337,
+    effects: [{ id: 'speed', amp: 2, t: 30 }],
+    brewingStands: { '1,2,3': { bottles: [null, null, null], charges: 5, progress: 0 } },
+  });
+  assert(v13.version === 13 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
+    'v13 save is a no-op');
 }
 
 // ---- Noise determinism ------------------------------------------------------------------

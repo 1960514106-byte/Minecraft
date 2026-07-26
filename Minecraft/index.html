@@ -118,6 +118,14 @@
     #airRow.hidden { display: none; }
     #statusMessage { margin-top: 7px; min-height: 14px; color: #ffe1df; }
 
+    /* Status-effect chips (potions, flasks, golden apples) */
+    #effectsRow { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; pointer-events: none; }
+    #effectsRow .chip {
+      padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: bold;
+      color: #fff; background: rgba(0,0,0,0.5); border: 1px solid;
+      text-shadow: 1px 1px 1px #000;
+    }
+
     #damageFlash {
       position: fixed; inset: 0; z-index: 9; pointer-events: none;
       background: rgba(190, 22, 22, 0.38); opacity: 0;
@@ -243,20 +251,24 @@
       color: #fff; text-shadow: 1px 1px 1px #000, 0 0 2px #000;
     }
 
-    /* Furnace UI */
-    #furnaceScreen, #chestScreen {
+    /* Furnace UI (shared by the brewing stand + anvil screens) */
+    #furnaceScreen, #chestScreen, #brewScreen, #anvilScreen {
       position: fixed; inset: 0; z-index: 28;
       display: flex; align-items: center; justify-content: center;
       background: rgba(0,0,0,0.5);
     }
-    #furnaceScreen.hidden, #chestScreen.hidden { display: none; }
-    #furnaceScreen .panel, #chestScreen .panel {
+    #furnaceScreen.hidden, #chestScreen.hidden, #brewScreen.hidden, #anvilScreen.hidden { display: none; }
+    #furnaceScreen .panel, #chestScreen .panel, #brewScreen .panel, #anvilScreen .panel {
       background: rgba(28,28,32,0.96); border: 2px solid rgba(255,255,255,0.25);
       border-radius: 10px; padding: 18px 20px; color: #fff;
       font-family: -apple-system, Segoe UI, Roboto, sans-serif;
       max-height: calc(100vh - 32px); overflow: auto;
     }
-    #furnaceScreen h3 { font-size: 14px; margin-bottom: 10px; opacity: 0.85; letter-spacing: 1px; }
+    #furnaceScreen h3, #brewScreen h3, #anvilScreen h3 { font-size: 14px; margin-bottom: 10px; opacity: 0.85; letter-spacing: 1px; }
+    #brewScreen .gridMain, #anvilScreen .gridMain { display: grid; grid-template-columns: repeat(9, 44px); grid-gap: 4px; }
+    .brewBottles { display: flex; gap: 6px; }
+    #brewProgress, #anvilCost { font-size: 11px; opacity: 0.7; }
+    #anvilCost { margin-bottom: 12px; min-height: 14px; }
     .furnaceRow { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
     .furnaceSlots { display: flex; flex-direction: column; gap: 6px; align-items: center; }
     .furnaceIndicator { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 18px; opacity: 0.65; }
@@ -443,6 +455,7 @@
   <div id="hud"></div>
   <div id="tooltip"></div>
   <div id="survival">
+    <div id="effectsRow"></div>
     <div class="row"><span>Health</span><div class="meter"><div id="healthFill" class="fill"></div></div><span id="healthText">20</span></div>
     <div class="row"><span>Hunger</span><div class="meter"><div id="hungerFill" class="fill"></div></div><span id="hungerText">20</span></div>
     <div id="airRow" class="row hidden"><span>Air</span><div class="meter"><div id="airFill" class="fill"></div></div><span id="airText">10</span></div>
@@ -589,6 +602,52 @@
       <div class="gridMain backpack" id="furnaceBackpackGrid"></div>
       <div class="gridMain hotbarRow" id="furnaceHotbarGrid"></div>
       <div class="hint">Place smeltable items on top, fuel on bottom &nbsp;|&nbsp; <kbd>E</kbd> / <kbd>Esc</kbd> to close</div>
+    </div>
+  </div>
+
+  <!-- Brewing stand: 3 bottle slots, 1 ingredient, blaze-powder fuel, progress. -->
+  <div id="brewScreen" class="hidden">
+    <div class="panel">
+      <h3>BREWING STAND</h3>
+      <div class="furnaceRow">
+        <div class="furnaceSlots">
+          <div class="cell" id="brewIngredient"></div>
+          <div class="cell" id="brewFuel"></div>
+        </div>
+        <div class="furnaceIndicator">
+          <div id="brewFlame">&#x2697;</div>
+          <div id="brewArrow">&darr;</div>
+          <div id="brewProgress"></div>
+        </div>
+        <div class="brewBottles">
+          <div class="cell" id="brewBottle0"></div>
+          <div class="cell" id="brewBottle1"></div>
+          <div class="cell" id="brewBottle2"></div>
+        </div>
+      </div>
+      <h3>INVENTORY</h3>
+      <div class="gridMain backpack" id="brewBackpackGrid"></div>
+      <div class="gridMain hotbarRow" id="brewHotbarGrid"></div>
+      <div class="hint">Top-left: ingredient &nbsp;|&nbsp; below it: blaze powder fuel &nbsp;|&nbsp; right: water bottles / potions &nbsp;|&nbsp; <kbd>E</kbd> / <kbd>Esc</kbd> to close</div>
+    </div>
+  </div>
+
+  <!-- Anvil: two inputs -> repaired/combined output, flat 2-level XP cost. -->
+  <div id="anvilScreen" class="hidden">
+    <div class="panel">
+      <h3>ANVIL</h3>
+      <div class="furnaceRow">
+        <div class="cell" id="anvilA"></div>
+        <div class="arrow">+</div>
+        <div class="cell" id="anvilB"></div>
+        <div class="arrow">&rarr;</div>
+        <div class="cell output" id="anvilOut"></div>
+      </div>
+      <div id="anvilCost"></div>
+      <h3>INVENTORY</h3>
+      <div class="gridMain backpack" id="anvilBackpackGrid"></div>
+      <div class="gridMain hotbarRow" id="anvilHotbarGrid"></div>
+      <div class="hint">Combine two of the same item, or add its raw repair material &nbsp;|&nbsp; costs 2 XP levels &nbsp;|&nbsp; <kbd>E</kbd> / <kbd>Esc</kbd> to close</div>
     </div>
   </div>
 

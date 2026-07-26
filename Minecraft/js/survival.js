@@ -46,6 +46,16 @@ export class Survival {
     this.armor = { head: null, chest: null, legs: null, feet: null };
     this.spawnPoint = null; // custom bed respawn {x, y, z}
 
+    // Phase 7 hooks (both injected by main.js):
+    //   effects        — the player's EffectManager (regen/poison/fire res/
+    //                    water breathing are read here each update)
+    //   damageModifier — (amount, reason, sourcePos) -> amount; the shield
+    //                    blocking path reduces frontal damage through this.
+    this.effects = null;
+    this.damageModifier = null;
+    this._effRegenTimer = 0;
+    this._poisonTimer = 0;
+
     this.restore(state);
   }
 
@@ -106,6 +116,41 @@ export class Survival {
     this._updateContactDamage(dt, player);
     this._updateStarvation(dt);
     this._updateRegen(dt);
+    this._updateEffects(dt);
+  }
+
+  // Timed status effects that touch health directly. The EffectManager itself
+  // is ticked by main.js (it also drives the HUD); this only applies the
+  // per-interval health consequences.
+  _updateEffects(dt) {
+    const fx = this.effects;
+    if (!fx) return;
+    // Regeneration: +1 HP per (2.5s / amplifier).
+    const regen = fx.level('regeneration');
+    if (regen > 0 && this.health < MAX_HEALTH) {
+      this._effRegenTimer += dt;
+      if (this._effRegenTimer >= 2.5 / regen) {
+        this._effRegenTimer = 0;
+        this.heal(1);
+      }
+    } else {
+      this._effRegenTimer = 0;
+    }
+    // Poison: 1 damage per (1.25s / amplifier), but never lethal (floor 1 HP).
+    const poison = fx.level('poison');
+    if (poison > 0) {
+      this._poisonTimer += dt;
+      if (this._poisonTimer >= 1.25 / poison) {
+        this._poisonTimer = 0;
+        if (this.health > 1) {
+          this.health = clamp(this.health - 1, 1, MAX_HEALTH);
+          this.damageFlash = Math.max(this.damageFlash, 0.6);
+          this._setMessage('Poisoned');
+        }
+      }
+    } else {
+      this._poisonTimer = 0;
+    }
   }
 
   // Total armor points including the Protection enchantment on each piece.
@@ -119,11 +164,19 @@ export class Survival {
     return pts;
   }
 
-  damage(amount, reason) {
+  // `sourcePos` (optional {x,y,z}) is where the damage came from — mob melee,
+  // projectiles and explosions pass it so the shield can check the frontal
+  // hemisphere. Damage without a source (falls, lava, poison, starving) can
+  // never be blocked.
+  damage(amount, reason, sourcePos = null) {
     // Creative players are invulnerable to every damage source (mobs, falls,
     // lava, cactus, explosions, arrows) — death cannot occur.
     if (isCreative()) return;
     if (!this.alive || amount <= 0) return;
+    if (this.damageModifier) {
+      amount = this.damageModifier(amount, reason, sourcePos);
+      if (amount <= 0) return;
+    }
     let reduced = amount;
     if (reason !== 'Starving') {
       const reduction = Math.min(0.6, this.armorTotal() * 0.04);
@@ -179,6 +232,11 @@ export class Survival {
   }
 
   _updateAir(dt, player) {
+    // Water breathing: air never drains (and refills as usual when surfaced).
+    if (player.underwater && this.effects && this.effects.has('water_breathing')) {
+      this._drownTimer = 0;
+      return;
+    }
     if (player.underwater) {
       this.air = clamp(this.air - dt, 0, MAX_AIR);
       if (this.air <= 0) {
@@ -227,7 +285,7 @@ export class Survival {
         }
       }
     }
-    if (touchingLava) {
+    if (touchingLava && !(this.effects && this.effects.has('fire_resistance'))) {
       this._lavaTimer = (this._lavaTimer || 0) + dt;
       if (this._lavaTimer >= 0.5) {
         this._lavaTimer = 0;

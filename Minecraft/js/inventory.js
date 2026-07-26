@@ -22,6 +22,7 @@ export class Inventory {
         const slot = { id, count: Math.min(itemStackMax(id), s.count | 0) };
         if (Number.isFinite(s.durability)) slot.durability = s.durability | 0;
         if (s.enchantments && typeof s.enchantments === 'object') slot.enchantments = { ...s.enchantments };
+        if (s.splash) slot.splash = true; // splash-potion stack flag (Phase 7)
         this.slots[i] = slot;
       }
     }
@@ -34,6 +35,7 @@ export class Inventory {
       const o = { id: s.id, count: s.count };
       if (s.durability !== undefined) o.durability = s.durability;
       if (s.enchantments) o.enchantments = { ...s.enchantments };
+      if (s.splash) o.splash = true;
       return o;
     });
   }
@@ -79,7 +81,7 @@ export class Inventory {
   // slot untouched. Returns the count that did NOT fit.
   addStack(stack) {
     if (!stack || stack.count <= 0) return 0;
-    if (stack.durability === undefined && !stack.enchantments) {
+    if (stack.durability === undefined && !stack.enchantments && !stack.splash) {
       return this.add(stack.id, stack.count);
     }
     for (let i = 0; i < this.slots.length; i++) {

@@ -2188,6 +2188,169 @@ export function createAtlasTexture() {
     dot(7, 10, true);   // rear mode torch
   }
 
+  // ==== Phase 7: brewing, potions, anvil, shield ================================
+
+  // ---- BREWING_STAND (224) : rod on a stone base with hanging bottles ----------
+  {
+    const { ox, oy } = toolTile(TILES.BREWING_STAND);
+    // stone base
+    for (let x = 2; x <= 13; x++) {
+      for (let y = 13; y <= 15; y++) setpx(ox + x, oy + y, 96 + (x % 3) * 6, 96, 100);
+    }
+    // central blaze rod
+    for (let y = 1; y <= 13; y++) setpx(ox + 8, oy + y, 236, 178, 60);
+    setpx(ox + 8, oy + 1, 255, 214, 100);
+    // two hanging bottle blobs
+    for (const bx of [4, 12]) {
+      for (let y = 8; y <= 11; y++) {
+        for (let x = bx - 1; x <= bx + 1; x++) setpx(ox + x, oy + y, 180, 200, 220);
+      }
+      setpx(ox + bx, oy + 7, 120, 120, 130); // neck
+      // arm from the rod to the bottle
+      const dir = bx < 8 ? -1 : 1;
+      for (let x = 8 + dir; x !== bx; x += dir) setpx(ox + x, oy + 6, 120, 120, 128);
+    }
+  }
+
+  // ---- NETHER_WART stages (225..227) : red bulbous crop on transparent bg -------
+  {
+    const wartStage = (index, height, bulbs) => {
+      const { ox, oy } = toolTile(index);
+      for (let b = 0; b < bulbs; b++) {
+        const cx = 3 + ((b * 5 + 2) % 11);
+        const top = 15 - height - ((b * 3) % 3);
+        for (let y = top; y <= 15; y++) {
+          const w = y > top + 1 ? 1 : 0;
+          for (let x = cx - w; x <= cx + w; x++) {
+            const n = (rng() * 2 - 1) * 14;
+            setpx(ox + x, oy + y, 150 + n, 26 + n * 0.4, 30 + n * 0.4);
+          }
+        }
+        setpx(ox + cx, oy + top, 200, 60, 56); // bright tip
+      }
+    };
+    wartStage(TILES.NETHER_WART_STAGE_0, 3, 2);
+    wartStage(TILES.NETHER_WART_STAGE_1, 6, 3);
+    wartStage(TILES.NETHER_WART_STAGE_2, 9, 4);
+  }
+
+  // ---- ANVIL top/side (228, 229) : dark iron, top shows the face ----------------
+  {
+    const { ox, oy } = speckle(TILES.ANVIL_TOP, [62, 62, 68], 8);
+    for (let i = 0; i < TILE_PX; i++) { setpx(ox + i, oy, 40, 40, 46); setpx(ox + i, oy + 15, 40, 40, 46); }
+    for (let y = 3; y <= 12; y++) {
+      for (let x = 3; x <= 12; x++) setpx(ox + x, oy + y, 84, 84, 92);
+    }
+  }
+  {
+    const { ox, oy } = speckle(TILES.ANVIL_SIDE, [70, 70, 78], 8);
+    // anvil silhouette: wide top slab, narrow waist, flared foot
+    const dark = (x, y) => setpx(ox + x, oy + y, 42, 42, 48);
+    for (let x = 1; x <= 14; x++) for (let y = 2; y <= 5; y++) dark(x, y);
+    for (let x = 6; x <= 9; x++) for (let y = 6; y <= 11; y++) dark(x, y);
+    for (let x = 3; x <= 12; x++) for (let y = 12; y <= 14; y++) dark(x, y);
+  }
+
+  // ---- GLASS_BOTTLE (230) + potion bottles (234..245) --------------------------
+  // One parameterized painter: glass outline, cork, and a liquid colour fill.
+  const bottleTile = (index, liquid) => {
+    const { ox, oy } = toolTile(index);
+    const glass = (x, y) => setpx(ox + x, oy + y, 190, 205, 220);
+    // neck + cork
+    for (let y = 2; y <= 4; y++) { glass(6, y); glass(9, y); }
+    for (let x = 6; x <= 9; x++) setpx(ox + x, oy + 1, 150, 110, 70);
+    // body outline
+    for (let y = 5; y <= 13; y++) { glass(4, y); glass(11, y); }
+    for (let x = 4; x <= 11; x++) { glass(x, 5); glass(x, 14); }
+    // fill
+    for (let y = 7; y <= 13; y++) {
+      for (let x = 5; x <= 10; x++) {
+        if (liquid) {
+          const n = (rng() * 2 - 1) * 12;
+          setpx(ox + x, oy + y, liquid[0] + n, liquid[1] + n, liquid[2] + n);
+        }
+      }
+    }
+    // glint
+    setpx(ox + 5, oy + 8, 235, 240, 248);
+    setpx(ox + 5, oy + 9, 225, 232, 244);
+  };
+  bottleTile(TILES.GLASS_BOTTLE, null);
+  bottleTile(TILES.POTION_WATER, [56, 110, 220]);
+  bottleTile(TILES.POTION_AWKWARD, [110, 100, 160]);
+  bottleTile(TILES.POTION_SPEED, [110, 200, 240]);
+  bottleTile(TILES.POTION_STRENGTH, [200, 60, 50]);
+  bottleTile(TILES.POTION_HEALING, [240, 90, 120]);
+  bottleTile(TILES.POTION_POISON, [100, 160, 40]);
+  bottleTile(TILES.POTION_REGEN, [230, 110, 190]);
+  bottleTile(TILES.POTION_FIRE_RES, [235, 160, 50]);
+  bottleTile(TILES.POTION_NIGHT_VISION, [70, 80, 200]);
+  bottleTile(TILES.POTION_WATER_BREATHING, [60, 140, 210]);
+  bottleTile(TILES.POTION_SLOWNESS, [120, 135, 155]);
+  bottleTile(TILES.POTION_WEAKNESS, [120, 115, 105]);
+
+  // ---- NETHER_WART_ITEM (231) : small red bulb cluster --------------------------
+  {
+    const { ox, oy } = toolTile(TILES.NETHER_WART_ITEM);
+    for (const [cx, cy] of [[6, 8], [10, 7], [8, 11]]) {
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (Math.abs(dx) + Math.abs(dy) > 3) continue;
+          const n = (rng() * 2 - 1) * 16;
+          setpx(ox + cx + dx, oy + cy + dy, 148 + n, 28, 32);
+        }
+      }
+      setpx(ox + cx, oy + cy - 2, 210, 70, 64);
+    }
+  }
+
+  // ---- BLAZE_POWDER (232) : orange sparks -------------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.BLAZE_POWDER);
+    for (let i = 0; i < 42; i++) {
+      const x = 2 + Math.floor(rng() * 12);
+      const y = 3 + Math.floor(rng() * 11);
+      const hot = rng() > 0.6;
+      setpx(ox + x, oy + y, hot ? 255 : 226, hot ? 200 : 130, hot ? 90 : 30);
+    }
+  }
+
+  // ---- FERMENTED_SPIDER_EYE (233) : murky eye ----------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.FERMENTED_SPIDER_EYE);
+    for (let y = 4; y <= 12; y++) {
+      for (let x = 3; x <= 12; x++) {
+        const d = Math.hypot(x - 7.5, y - 8);
+        if (d < 5) {
+          const n = (rng() * 2 - 1) * 14;
+          setpx(ox + x, oy + y, 118 + n, 78 + n, 96 + n);
+        }
+      }
+    }
+    for (let y = 6; y <= 10; y++) for (let x = 6; x <= 9; x++) setpx(ox + x, oy + y, 190, 170, 200);
+    for (let y = 7; y <= 9; y++) { setpx(ox + 7, oy + y, 40, 24, 44); setpx(ox + 8, oy + y, 40, 24, 44); }
+  }
+
+  // ---- SHIELD (246) : kite shield, plank face with an iron boss -----------------
+  {
+    const { ox, oy } = toolTile(TILES.SHIELD);
+    for (let y = 1; y <= 14; y++) {
+      // taper toward the point at the bottom
+      const half = y <= 8 ? 6 : 6 - (y - 8);
+      if (half < 0) break;
+      for (let x = 8 - half; x <= 7 + half; x++) {
+        const edge = x === 8 - half || x === 7 + half || y === 1;
+        if (edge) setpx(ox + x, oy + y, 120, 120, 128);
+        else {
+          const n = (rng() * 2 - 1) * 10;
+          setpx(ox + x, oy + y, 172 + n, 132 + n, 82 + n);
+        }
+      }
+    }
+    // iron boss in the centre
+    for (let y = 5; y <= 7; y++) for (let x = 7; x <= 9; x++) setpx(ox + x, oy + y, 200, 202, 210);
+  }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

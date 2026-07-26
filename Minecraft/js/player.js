@@ -70,6 +70,11 @@ export class Player {
     // controller skips its own movement/physics.
     this.riding = null;
 
+    // Phase 7: injected by main.js — the player's EffectManager (speed/
+    // slowness scale movement) and the shield-blocking flag (30% speed).
+    this.effects = null;
+    this.blocking = false;
+
     this._forward = new THREE.Vector3();
     this._right = new THREE.Vector3();
     this._feet = new THREE.Vector3();
@@ -177,6 +182,14 @@ export class Player {
     if (this.world.getBlock(Math.floor(pos0.x), Math.floor(pos0.y - EYE - 0.1), Math.floor(pos0.z)) === BLOCK.SOUL_SAND) {
       speed *= 0.45;
     }
+    // Status effects scale ground/swim movement (never creative flight):
+    // +20% per Speed level, -15% per Slowness level.
+    if (!this.flying && this.effects) {
+      const mul = 1 + 0.2 * this.effects.level('speed') - 0.15 * this.effects.level('slowness');
+      speed *= Math.max(0.1, mul);
+    }
+    // Raising a shield slows the player to 30% while blocking.
+    if (!this.flying && this.blocking) speed *= 0.3;
     this._forward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
     this._forward.y = 0; this._forward.normalize();
     this._right.set(1, 0, 0).applyQuaternion(this.camera.quaternion);

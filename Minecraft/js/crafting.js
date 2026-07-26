@@ -64,6 +64,12 @@ const SHAPELESS = [
   { need: { [ITEM.WOOL]: 1 }, out: { id: BLOCK.WOOL_WHITE, count: 1 } },
   // Sticky piston: a piston with a slimeball smeared on the face
   { need: { [BLOCK.PISTON]: 1, [ITEM.SLIMEBALL]: 1 }, out: { id: BLOCK.STICKY_PISTON, count: 1 } },
+  // ---- Phase 7: brewing ---------------------------------------------------------
+  // Blaze powder: one rod grinds into two doses
+  { need: { [ITEM.BLAZE_ROD]: 1 }, out: { id: ITEM.BLAZE_POWDER, count: 2 } },
+  // Fermented spider eye: sugar + spider eye (vanilla adds a brown mushroom —
+  // no mushroom item exists, documented simplification)
+  { need: { [ITEM.SUGAR]: 1, [ITEM.SPIDER_EYE]: 1 }, out: { id: ITEM.FERMENTED_SPIDER_EYE, count: 1 } },
 ];
 
 // Inventory 2x2 recipes. `shape` is [top-left, top-right, bottom-left, bottom-right].
@@ -215,6 +221,15 @@ const SHAPED_3 = [
   // Comparator: three torches over redstone on a stone base (vanilla uses
   // quartz in the middle — redstone stands in, no quartz yet)
   { shape: [null, BLOCK.REDSTONE_TORCH, null, BLOCK.REDSTONE_TORCH, ITEM.REDSTONE, BLOCK.REDSTONE_TORCH, BLOCK.STONE, BLOCK.STONE, BLOCK.STONE], out: { id: BLOCK.COMPARATOR, count: 1 } },
+  // ---- Phase 7: brewing / anvil / shield --------------------------------------
+  // Brewing stand: a blaze rod planted on 3 cobblestone
+  { shape: [null, ITEM.BLAZE_ROD, null, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, BLOCK.COBBLESTONE, null, null, null], out: { id: BLOCK.BREWING_STAND, count: 1 } },
+  // Glass bottles: 3 glass in a V -> 3 bottles
+  { shape: [BLOCK.GLASS, null, BLOCK.GLASS, null, BLOCK.GLASS, null, null, null, null], out: { id: ITEM.GLASS_BOTTLE, count: 3 } },
+  // Anvil: 3 iron blocks over 4 iron ingots (vanilla shape)
+  { shape: [BLOCK.IRON_BLOCK, BLOCK.IRON_BLOCK, BLOCK.IRON_BLOCK, null, ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, ITEM.IRON_INGOT, ITEM.IRON_INGOT], out: { id: BLOCK.ANVIL, count: 1 } },
+  // Shield: 6 planks in a Y around an iron ingot cap
+  { shape: [BLOCK.PLANK, ITEM.IRON_INGOT, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, null, BLOCK.PLANK, null], out: { id: ITEM.SHIELD, count: 1 } },
 ];
 
 function activeSlots(grid, size) {

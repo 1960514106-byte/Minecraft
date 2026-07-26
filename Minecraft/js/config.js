@@ -154,6 +154,12 @@ export const BLOCK = {
   HOPPER: 124,             // 5-slot funnel; pulls drops/containers, pushes on
   NOTE_BLOCK: 125,         // right-click cycles pitch (meta 0..24), plays on power
   COMPARATOR: 126,         // analog: rear signal vs sides; reads container fill
+  // ---- Phase 7: brewing + anvil (127+) ---------------------------------------
+  BREWING_STAND: 127,      // cross-model stand (real 3D stand model is future polish)
+  NETHER_WART_0: 128,      // crop stages, grows ONLY on soul sand
+  NETHER_WART_1: 129,
+  NETHER_WART_2: 130,
+  ANVIL: 131,              // plain cube with an anvil-silhouette texture
 };
 
 // Wool blocks in vanilla colour order, plus the RGB used by the texture
@@ -469,6 +475,37 @@ export const TILES = {
   HOPPER_TOP:     221,
   NOTE_BLOCK:     222,
   COMPARATOR:     223,
+  // ---- Phase 7 (224+): brewing, potions, anvil, shield --------------------------
+  // --- row 56 (224..227) ---
+  BREWING_STAND:  224,
+  NETHER_WART_STAGE_0: 225,
+  NETHER_WART_STAGE_1: 226,
+  NETHER_WART_STAGE_2: 227,
+  // --- row 57 (228..231) ---
+  ANVIL_TOP:      228,
+  ANVIL_SIDE:     229,
+  GLASS_BOTTLE:   230,
+  NETHER_WART_ITEM: 231,
+  // --- row 58 (232..235) ---
+  BLAZE_POWDER:   232,
+  FERMENTED_SPIDER_EYE: 233,
+  // Potions: one parameterized bottle painter, liquid colour per type.
+  POTION_WATER:   234,
+  POTION_AWKWARD: 235,
+  // --- row 59 (236..239) ---
+  POTION_SPEED:   236,
+  POTION_STRENGTH: 237,
+  POTION_HEALING: 238,
+  POTION_POISON:  239,
+  // --- row 60 (240..243) ---
+  POTION_REGEN:   240,
+  POTION_FIRE_RES: 241,
+  POTION_NIGHT_VISION: 242,
+  POTION_WATER_BREATHING: 243,
+  // --- row 61 (244..247) ---
+  POTION_SLOWNESS: 244,
+  POTION_WEAKNESS: 245,
+  SHIELD:         246,
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -580,6 +617,27 @@ export const ITEM = {
   MAGMA_CREAM: 1098,
   INK_SAC: 1099,
   SADDLE: 1100,
+  // ---- Phase 7 (1101+): brewing, potions, shield --------------------------------
+  GLASS_BOTTLE: 1101,
+  WATER_BOTTLE: 1102,
+  NETHER_WART: 1103,
+  BLAZE_POWDER: 1104,
+  FERMENTED_SPIDER_EYE: 1105,
+  // One item id per potion type. Splash variants are NOT separate ids: a stack
+  // brewed with gunpowder carries `splash: true` (like durability/enchantments,
+  // preserved by inventory/containers) — bounds the id sprawl to 11 potions.
+  POTION_AWKWARD: 1106,
+  POTION_SPEED: 1107,
+  POTION_STRENGTH: 1108,
+  POTION_HEALING: 1109,
+  POTION_POISON: 1110,
+  POTION_REGEN: 1111,
+  POTION_FIRE_RES: 1112,
+  POTION_NIGHT_VISION: 1113,
+  POTION_WATER_BREATHING: 1114,
+  POTION_SLOWNESS: 1115,
+  POTION_WEAKNESS: 1116,
+  SHIELD: 1117,
 };
 
 // Per-block definition. `top`/`bottom`/`side` are atlas tile indices.
@@ -751,6 +809,19 @@ export const BLOCKS = {
   // Comparator: plate model like the repeater; direction/mode/output level
   // live in the redstone side-table. Right-click toggles subtract mode.
   [BLOCK.COMPARATOR]: { name: 'Comparator', top: TILES.COMPARATOR, bottom: TILES.COMPARATOR, side: TILES.COMPARATOR, solid: false, transparent: true, hardness: 0.3, model: 'plate' },
+  // ---- Phase 7: brewing + anvil -------------------------------------------------
+  // Brewing stand: cross model (like flowers) but SOLID so the interaction ray
+  // hits it (right-click opens the brew screen). A real 3D stand mesh is
+  // future polish — documented simplification.
+  [BLOCK.BREWING_STAND]: { name: 'Brewing Stand', top: TILES.BREWING_STAND, bottom: TILES.BREWING_STAND, side: TILES.BREWING_STAND, solid: true, transparent: true, hardness: 0.6, tool: 'pickaxe', model: 'cross', light: 2 },
+  // Nether wart crop stages (grows only on soul sand; separate-id pattern like
+  // wheat). Immature stages return one wart; mature yields 3 (fixed roll).
+  [BLOCK.NETHER_WART_0]: { name: 'Nether Wart (young)', top: TILES.NETHER_WART_STAGE_0, bottom: TILES.NETHER_WART_STAGE_0, side: TILES.NETHER_WART_STAGE_0, solid: false, transparent: true, hardness: 0.01, model: 'cross', drops: [{ id: ITEM.NETHER_WART, count: 1 }] },
+  [BLOCK.NETHER_WART_1]: { name: 'Nether Wart (growing)', top: TILES.NETHER_WART_STAGE_1, bottom: TILES.NETHER_WART_STAGE_1, side: TILES.NETHER_WART_STAGE_1, solid: false, transparent: true, hardness: 0.01, model: 'cross', drops: [{ id: ITEM.NETHER_WART, count: 1 }] },
+  [BLOCK.NETHER_WART_2]: { name: 'Nether Wart', top: TILES.NETHER_WART_STAGE_2, bottom: TILES.NETHER_WART_STAGE_2, side: TILES.NETHER_WART_STAGE_2, solid: false, transparent: true, hardness: 0.01, model: 'cross', drops: [{ id: ITEM.NETHER_WART, count: 3 }] },
+  // Anvil: plain cube with an anvil-silhouette texture (a real anvil shape is
+  // future polish — documented). Right-click opens the repair screen.
+  [BLOCK.ANVIL]: { name: 'Anvil', top: TILES.ANVIL_TOP, bottom: TILES.ANVIL_SIDE, side: TILES.ANVIL_SIDE, solid: true, transparent: false, hardness: 3.0, tool: 'pickaxe' },
 };
 
 // Blocks selectable in the hotbar (1..N keys), in order.
@@ -882,6 +953,26 @@ export const ITEMS = {
   // Ink sacs double as the black dye (gray tones mix in bone meal).
   [ITEM.INK_SAC]: { name: 'Ink Sac', tile: TILES.INK_SAC },
   [ITEM.SADDLE]: { name: 'Saddle', tile: TILES.SADDLE, stack: 1 },
+  // ---- Phase 7: brewing, potions, shield -------------------------------------------
+  [ITEM.GLASS_BOTTLE]: { name: 'Glass Bottle', tile: TILES.GLASS_BOTTLE, stack: 16 },
+  [ITEM.WATER_BOTTLE]: { name: 'Water Bottle', tile: TILES.POTION_WATER, stack: 1 },
+  [ITEM.NETHER_WART]: { name: 'Nether Wart', tile: TILES.NETHER_WART_ITEM },
+  [ITEM.BLAZE_POWDER]: { name: 'Blaze Powder', tile: TILES.BLAZE_POWDER },
+  [ITEM.FERMENTED_SPIDER_EYE]: { name: 'Fermented Spider Eye', tile: TILES.FERMENTED_SPIDER_EYE },
+  [ITEM.POTION_AWKWARD]: { name: 'Awkward Potion', tile: TILES.POTION_AWKWARD, stack: 1, potion: true },
+  [ITEM.POTION_SPEED]: { name: 'Potion of Swiftness', tile: TILES.POTION_SPEED, stack: 1, potion: true },
+  [ITEM.POTION_STRENGTH]: { name: 'Potion of Strength', tile: TILES.POTION_STRENGTH, stack: 1, potion: true },
+  [ITEM.POTION_HEALING]: { name: 'Potion of Healing', tile: TILES.POTION_HEALING, stack: 1, potion: true },
+  [ITEM.POTION_POISON]: { name: 'Potion of Poison', tile: TILES.POTION_POISON, stack: 1, potion: true },
+  [ITEM.POTION_REGEN]: { name: 'Potion of Regeneration', tile: TILES.POTION_REGEN, stack: 1, potion: true },
+  [ITEM.POTION_FIRE_RES]: { name: 'Potion of Fire Resistance', tile: TILES.POTION_FIRE_RES, stack: 1, potion: true },
+  [ITEM.POTION_NIGHT_VISION]: { name: 'Potion of Night Vision', tile: TILES.POTION_NIGHT_VISION, stack: 1, potion: true },
+  [ITEM.POTION_WATER_BREATHING]: { name: 'Potion of Water Breathing', tile: TILES.POTION_WATER_BREATHING, stack: 1, potion: true },
+  [ITEM.POTION_SLOWNESS]: { name: 'Potion of Slowness', tile: TILES.POTION_SLOWNESS, stack: 1, potion: true },
+  [ITEM.POTION_WEAKNESS]: { name: 'Potion of Weakness', tile: TILES.POTION_WEAKNESS, stack: 1, potion: true },
+  // Shield: hold right-click to block (30% move speed; frontal damage -66%,
+  // the prevented damage is charged to the shield's durability instead).
+  [ITEM.SHIELD]: { name: 'Shield', tile: TILES.SHIELD, stack: 1, durability: 336 },
 };
 
 // True if an item ID refers to a placeable block (vs. an item-only thing).
@@ -1082,7 +1173,10 @@ export const CANE_GROW_CHANCE = 0.02;
 // Ordered wheat growth stages (used by the crop ticker in main.js).
 export const WHEAT_STAGES = [BLOCK.WHEAT_0, BLOCK.WHEAT_1, BLOCK.WHEAT_2, BLOCK.WHEAT_3];
 export const CARROT_STAGES = [BLOCK.CARROT_0, BLOCK.CARROT_1, BLOCK.CARROT_2];
-const CROP_CHAINS = [WHEAT_STAGES, CARROT_STAGES];
+// Nether wart joins the generic crop chains (edit-scan growth ticker, bone
+// meal, pop-when-support-breaks) but only PLANTS on soul sand (main.js).
+export const NETHER_WART_STAGES = [BLOCK.NETHER_WART_0, BLOCK.NETHER_WART_1, BLOCK.NETHER_WART_2];
+const CROP_CHAINS = [WHEAT_STAGES, CARROT_STAGES, NETHER_WART_STAGES];
 
 // The next growth stage for a crop block, or 0 if it is mature / not a crop.
 export function nextCropStage(id) {
@@ -1282,16 +1376,65 @@ export function xpFromSmelting(itemId) {
   }
 }
 
-// Enchantment definitions
+// Enchantment definitions. Phase 7: max levels raised to IV, POWER added for
+// bows. Level N costs enchantCost(N) XP levels (N+2: I=3 as before, IV=6).
 export const ENCHANTMENTS = {
-  sharpness:   { name: 'Sharpness',   maxLevel: 3, slot: 'weapon',  desc: '+2 damage per level' },
-  efficiency:  { name: 'Efficiency',  maxLevel: 3, slot: 'tool',    desc: '+30% mining speed per level' },
-  protection:  { name: 'Protection',  maxLevel: 3, slot: 'armor',   desc: '+1 armor per level' },
-  unbreaking:  { name: 'Unbreaking',  maxLevel: 3, slot: 'any',     desc: 'Reduces durability loss' },
+  sharpness:   { name: 'Sharpness',   maxLevel: 4, slot: 'weapon',  desc: '+2 damage per level' },
+  efficiency:  { name: 'Efficiency',  maxLevel: 4, slot: 'tool',    desc: '+30% mining speed per level' },
+  protection:  { name: 'Protection',  maxLevel: 4, slot: 'armor',   desc: '+1 armor per level' },
+  unbreaking:  { name: 'Unbreaking',  maxLevel: 4, slot: 'any',     desc: 'Reduces durability loss' },
+  power:       { name: 'Power',       maxLevel: 4, slot: 'bow',     desc: '+25% bow damage per level' },
 };
+
+// XP-level cost of buying enchantment level `level` (1-based).
+export function enchantCost(level) {
+  return level + 2;
+}
 
 export function isEnchantable(id) {
   const it = ITEMS[id];
   if (!it) return false;
-  return !!(it.tool || it.damage || it.armor);
+  return !!(it.tool || it.damage || it.armor || it.bow);
 }
+
+// ---- Phase 7: potions ------------------------------------------------------------
+// What drinking (or being splashed by) each potion does. Timed entries apply
+// through the EffectManager; `instant` entries apply immediately and are never
+// stored. Durations: 90 s for buffs (vanilla-ish 3 min halved to keep pace),
+// poison 20 s, regen 30 s, slowness/weakness 45 s — documented choice.
+export const POTION_EFFECTS = {
+  [ITEM.POTION_SPEED]:           { effect: 'speed', amp: 1, dur: 90 },
+  [ITEM.POTION_STRENGTH]:        { effect: 'strength', amp: 1, dur: 90 },
+  [ITEM.POTION_HEALING]:         { instant: 'heal', amount: 6 },
+  [ITEM.POTION_POISON]:          { effect: 'poison', amp: 1, dur: 20 },
+  [ITEM.POTION_REGEN]:           { effect: 'regeneration', amp: 1, dur: 30 },
+  [ITEM.POTION_FIRE_RES]:        { effect: 'fire_resistance', amp: 1, dur: 90 },
+  [ITEM.POTION_NIGHT_VISION]:    { effect: 'night_vision', amp: 1, dur: 90 },
+  [ITEM.POTION_WATER_BREATHING]: { effect: 'water_breathing', amp: 1, dur: 90 },
+  [ITEM.POTION_SLOWNESS]:        { effect: 'slowness', amp: 1, dur: 45 },
+  [ITEM.POTION_WEAKNESS]:        { effect: 'weakness', amp: 1, dur: 45 },
+};
+
+// Every drinkable/throwable bottle id (awkward + water have no effect but
+// still return the glass bottle when drunk).
+export function isPotionItem(id) {
+  const it = ITEMS[id];
+  return !!(it && it.potion) || id === ITEM.WATER_BOTTLE;
+}
+
+// ---- Phase 7: anvil repair materials ----------------------------------------------
+// item id -> the raw material that repairs 25% of max durability per unit in
+// the anvil. Only items that actually wear (tools/weapons/shield — armor has
+// no durability in this game) are listed; anything absent can only be
+// repaired by combining two of the same item.
+const IRON_GEAR = [ITEM.IRON_PICKAXE, ITEM.IRON_AXE, ITEM.IRON_SHOVEL, ITEM.IRON_SWORD, ITEM.IRON_HOE];
+const GOLD_GEAR = [ITEM.GOLDEN_PICKAXE, ITEM.GOLDEN_AXE, ITEM.GOLDEN_SHOVEL, ITEM.GOLDEN_SWORD, ITEM.GOLDEN_HOE];
+const DIAMOND_GEAR = [ITEM.DIAMOND_PICKAXE, ITEM.DIAMOND_AXE, ITEM.DIAMOND_SHOVEL, ITEM.DIAMOND_SWORD];
+const STONE_GEAR = [ITEM.STONE_PICKAXE, ITEM.STONE_AXE, ITEM.STONE_SHOVEL, ITEM.STONE_SWORD, ITEM.STONE_HOE];
+const WOOD_GEAR = [ITEM.WOODEN_PICKAXE, ITEM.WOODEN_AXE, ITEM.WOODEN_SHOVEL, ITEM.WOODEN_SWORD, ITEM.WOODEN_HOE, ITEM.SHIELD];
+export const REPAIR_MATERIAL = {};
+for (const id of IRON_GEAR) REPAIR_MATERIAL[id] = ITEM.IRON_INGOT;
+for (const id of GOLD_GEAR) REPAIR_MATERIAL[id] = ITEM.GOLD_INGOT;
+for (const id of DIAMOND_GEAR) REPAIR_MATERIAL[id] = ITEM.DIAMOND;
+for (const id of STONE_GEAR) REPAIR_MATERIAL[id] = BLOCK.COBBLESTONE;
+for (const id of WOOD_GEAR) REPAIR_MATERIAL[id] = BLOCK.PLANK;

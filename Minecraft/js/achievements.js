@@ -6,7 +6,7 @@
 //   breed  { animal }         tame   {}                ride   {}
 //   portal {}                 boss   {}                summon {}
 //   enchant {}                trade  {}                level  { level }
-//   structure { kind }        redstone { block }
+//   structure { kind }        redstone { block }   brew {}
 // =============================================================================
 
 import { BLOCK, ITEM } from './config.js';
@@ -28,6 +28,8 @@ const ACHIEVEMENTS = [
   { id: 'bread', name: 'Grain of Truth', desc: 'Bake bread', check: (ev) => ev.type === 'craft' && ev.item === ITEM.BREAD },
   { id: 'golden_apple', name: 'Gilded Snack', desc: 'Craft a golden apple', check: (ev) => ev.type === 'craft' && ev.item === ITEM.GOLDEN_APPLE },
   { id: 'enchanter', name: 'Enchanter', desc: 'Enchant an item', check: (ev) => ev.type === 'enchant' },
+  { id: 'brew', name: 'Local Brewery', desc: 'Brew a potion', check: (ev) => ev.type === 'brew' },
+  { id: 'shield', name: 'Cover Me', desc: 'Craft a shield', check: (ev) => ev.type === 'craft' && ev.item === ITEM.SHIELD },
   { id: 'level10', name: 'Seasoned', desc: 'Reach XP level 10', check: (ev) => ev.type === 'level' && ev.level >= 10 },
   { id: 'trade', name: 'Fair Deal', desc: 'Trade with a villager', check: (ev) => ev.type === 'trade' },
   // --- animals ---
