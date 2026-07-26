@@ -154,6 +154,16 @@
     }
     #settings .checkRow { display: flex; gap: 10px; align-items: center; margin: 12px 0; font-size: 13px; }
     #settings input[type="range"] { width: 100%; }
+    #gameModeRow { display: flex; gap: 10px; align-items: center; margin: 12px 0; font-size: 13px; }
+    #gameModeRow .modeBtn {
+      flex: 1; padding: 7px 10px; cursor: pointer; font: inherit;
+      color: #fff; background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.3); border-radius: 6px;
+    }
+    #gameModeRow .modeBtn.active {
+      background: rgba(120,200,120,0.25); border-color: rgba(120,220,120,0.85);
+      box-shadow: 0 0 0 1px rgba(120,220,120,0.55) inset;
+    }
     #settingsClose {
       width: 100%; margin-top: 14px; padding: 9px 12px; cursor: pointer;
       color: #fff; background: rgba(255,255,255,0.14);
@@ -184,6 +194,19 @@
     #inventory .recipeList {
       display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 4px 14px; margin-bottom: 12px; font-size: 11px; line-height: 1.35; opacity: 0.68;
+    }
+    /* Mode-dependent sections of the inventory screen (crafting vs. picker) */
+    #inventory .hidden { display: none; }
+    #creativePanel { margin-bottom: 16px; }
+    #creativeFilter {
+      width: 100%; margin-bottom: 8px; padding: 7px 9px; font: inherit; font-size: 13px;
+      color: #fff; background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; outline: none;
+    }
+    #creativeFilter:focus { border-color: rgba(255,255,255,0.65); }
+    #creativeGrid {
+      display: grid; grid-template-columns: repeat(9, 44px); grid-gap: 4px;
+      max-height: 240px; overflow-y: auto; padding-right: 4px;
     }
     .cell {
       width: 44px; height: 44px; border: 2px solid rgba(255,255,255,0.18);
@@ -463,7 +486,10 @@
       <kbd>T</kbd> skip time &nbsp;|&nbsp; <kbd>P</kbd> pause time &nbsp;|&nbsp;
       <kbd>M</kbd> minimap &nbsp;|&nbsp; <kbd>J</kbd> achievements &nbsp;|&nbsp;
       <kbd>O</kbd> settings &nbsp;|&nbsp;
-      <kbd>Esc</kbd> release mouse &nbsp;|&nbsp; <kbd>K</kbd> reset world
+      <kbd>Esc</kbd> release mouse &nbsp;|&nbsp; <kbd>K</kbd> reset world<br/>
+      <kbd>F4</kbd> survival / creative &nbsp;|&nbsp;
+      <kbd>Space</kbd>&times;2 toggle flight (creative) &nbsp;|&nbsp;
+      <kbd>Middle&nbsp;Click</kbd> pick block (creative)
     </p>
     <p style="margin-top:10px; font-size:13px; opacity:0.7;">Your world saves automatically.</p>
     <div class="play">Click to play</div>
@@ -492,6 +518,11 @@
         <input id="showHudToggle" type="checkbox" />
         <span>Show debug HUD</span>
       </label>
+      <div id="gameModeRow">
+        <span>Game Mode</span>
+        <button id="modeSurvivalBtn" class="modeBtn" type="button">Survival</button>
+        <button id="modeCreativeBtn" class="modeBtn" type="button">Creative</button>
+      </div>
       <button id="settingsClose" type="button">Close</button>
     </div>
   </div>
@@ -499,10 +530,16 @@
   <div id="inventory" class="hidden">
     <div class="panel">
       <h3 id="craftTitle">CRAFTING</h3>
-      <div class="craftRow">
+      <div class="craftRow" id="craftRow">
         <div class="grid2" id="craftGrid"></div>
         <div class="arrow">&rarr;</div>
         <div class="cell output" id="craftOut"></div>
+      </div>
+      <div id="creativePanel" class="hidden">
+        <h3>ALL ITEMS</h3>
+        <input id="creativeFilter" type="text" placeholder="Filter items..." autocomplete="off" spellcheck="false" />
+        <div id="creativeGrid"></div>
+        <div class="hint" style="margin:6px 0 0;">Click: full stack on cursor &nbsp;|&nbsp; Shift-click: stack to inventory &nbsp;|&nbsp; Right-click: single item</div>
       </div>
       <h3>ARMOR</h3>
       <div class="armorSlots">
@@ -511,8 +548,8 @@
         <div><div class="cell" id="armorLegs"></div><div class="label">Legs</div></div>
         <div><div class="cell" id="armorFeet"></div><div class="label">Feet</div></div>
       </div>
-      <h3>RECIPES</h3>
-      <div class="recipeList">
+      <h3 id="recipesTitle">RECIPES</h3>
+      <div class="recipeList" id="recipeList">
         <div>Wood -> Planks</div>
         <div>Planks -> Sticks</div>
         <div>8 Stone -> Furnace</div>

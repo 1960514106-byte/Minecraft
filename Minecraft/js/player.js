@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { BLOCK, isSolid, isLiquid, isClimbable } from './config.js';
+import { isCreative } from './gamemode.js';
 
 const EYE = 1.62;       // camera height above the feet
 const HALF_W = 0.3;     // half player width on X/Z (0.6 wide)
@@ -20,6 +21,9 @@ const WATER_GRAVITY = 5; // gentler downward pull while in water
 const WATER_DRAG = 0.18; // per-second velocity retention in water
 const SWIM_UP = 13;      // upward acceleration while holding jump in water
 const SWIM_DOWN = 9;     // downward acceleration while holding shift in water
+const FLY_SPEED = WALK * 2.5;      // horizontal speed while creative-flying
+const FLY_VERTICAL = 8;            // ascend/descend speed while flying
+const FLY_DOUBLE_TAP_MS = 300;     // double-tap Space window to toggle flight
 
 export class Player {
   constructor(camera, domElement, world) {
@@ -41,8 +45,25 @@ export class Player {
     this.fallDistance = 0;
     this.lastFallDistance = 0;
 
+    // Creative flight: double-tapping Space toggles it (creative mode only).
+    this.flying = false;
+    this._lastSpaceTap = -Infinity;
+
     this.keys = Object.create(null);
-    document.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !e.repeat && !this.keys['Space'] && this.controls.isLocked) {
+        const now = performance.now();
+        if (isCreative() && now - this._lastSpaceTap < FLY_DOUBLE_TAP_MS) {
+          this.flying = !this.flying;
+          this.velocity.y = 0;
+          this.fallDistance = 0;
+          this._lastSpaceTap = -Infinity; // a third tap shouldn't re-toggle
+        } else {
+          this._lastSpaceTap = now;
+        }
+      }
+      this.keys[e.code] = true;
+    });
     document.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
 
     // While riding a minecart, main.js drives the camera position and this
@@ -145,9 +166,12 @@ export class Player {
     if (!this.controls.isLocked) return;
     const k = this.keys;
 
+    // Leaving creative always clears flight.
+    if (this.flying && !isCreative()) this.flying = false;
+
     // Horizontal movement relative to where the camera is facing (flattened).
     const shift = k['ShiftLeft'] || k['ShiftRight'];
-    let speed = this.inWater ? SWIM : (shift ? SPRINT : WALK);
+    let speed = this.flying ? FLY_SPEED : this.inWater ? SWIM : (shift ? SPRINT : WALK);
     // Soul sand drags anything walking over it.
     const pos0 = this.object.position;
     if (this.world.getBlock(Math.floor(pos0.x), Math.floor(pos0.y - EYE - 0.1), Math.floor(pos0.z)) === BLOCK.SOUL_SAND) {
@@ -165,13 +189,18 @@ export class Player {
     if (k['KeyA']) { mx -= this._right.x;   mz -= this._right.z; }
     const len = Math.hypot(mx, mz);
     this.isMoving = len > 0;
-    this.isSprinting = !this.inWater && shift && this.isMoving;
+    this.isSprinting = !this.inWater && !this.flying && shift && this.isMoving;
     if (len > 0) { mx = (mx / len) * speed; mz = (mz / len) * speed; }
     this.velocity.x = mx;
     this.velocity.z = mz;
 
-    // Gravity + jump/swim/ladder.
-    if (this.onLadder) {
+    // Gravity + jump/swim/ladder (or creative flight, which overrides all).
+    if (this.flying) {
+      // No gravity: Space ascends, Shift descends, otherwise hover.
+      this.velocity.y = k['Space'] ? FLY_VERTICAL : shift ? -FLY_VERTICAL : 0;
+      this.onGround = false;
+      this.fallDistance = 0;
+    } else if (this.onLadder) {
       this.velocity.y *= 0.2;
       if (k['Space']) this.velocity.y = 4.5;
       else if (shift) this.velocity.y = -4.5;
@@ -204,12 +233,14 @@ export class Player {
     this._moveAxis(feet, 'z', this.velocity.z * dt);
     const vyBeforeMove = this.velocity.y;
     const hitY = this._moveAxis(feet, 'y', this.velocity.y * dt);
-    if (!this.inWater && feet.y < prevFeetY) this.fallDistance += prevFeetY - feet.y;
+    // Fall distance never accumulates in creative (no fall damage, no thumps).
+    if (!this.inWater && feet.y < prevFeetY && !isCreative()) this.fallDistance += prevFeetY - feet.y;
     if (hitY) {
       this.onGround = vyBeforeMove < 0; // blocked while descending = standing
       if (this.onGround && !this.inWater) {
         this.landedThisFrame = true;
         this.lastFallDistance = this.fallDistance;
+        if (this.flying) this.flying = false; // landing ends flight
       }
       this.velocity.y = 0;
       this.fallDistance = 0;

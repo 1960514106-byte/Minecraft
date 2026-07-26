@@ -28,10 +28,11 @@ import { ProjectileManager } from './projectiles.js';
 import { MinecartManager } from './minecart.js';
 import { rollLoot } from './structures.js';
 import { tryLightPortal, collapsePortalAt, buildArrivalPortal, findPortalNear } from './portal.js';
+import { getMode, setMode, isCreative, setOnModeChange } from './gamemode.js';
 import {
   biomeDef, itemDef, isBlockItem, foodValue, blockDrop, attackDamage,
   breakDuration, itemStackMax, armorPoints, armorSlotOf, fuelValue, smeltResult, SMELT_TIME,
-  BLOCK, ITEM, WORLD_SEED, ATLAS_COLS, ATLAS_ROWS,
+  BLOCK, ITEM, BLOCKS, ITEMS, WORLD_SEED, ATLAS_COLS, ATLAS_ROWS,
   HOTBAR_SIZE, INVENTORY_SIZE, APPLE_DROP_CHANCE,
   SEED_DROP_CHANCE, WHEAT_GROW_CHANCE, toolKind, nextCropStage, isCropBlock,
   itemMaxDurability, placeableBlock, isClimbable, isSolid, isRail, stackEnchant,
@@ -112,11 +113,12 @@ function ensureNether() {
   return netherWorld;
 }
 
-const SAVE_VERSION = 8;
+const SAVE_VERSION = 9;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
 const hasSave = !!(save && save.version === SAVE_VERSION && save.seed === WORLD_SEED);
+if (hasSave) setMode(save.mode || 'survival');
 if (hasSave && save.edits) overworld.loadEdits(save.edits);
 if (hasSave && save.netherEdits) ensureNether().loadEdits(save.netherEdits);
 if (hasSave && save.dimension === 'nether') {
@@ -553,6 +555,7 @@ function gatherState() {
     version: SAVE_VERSION,
     seed: WORLD_SEED,
     time: dayNight.t,
+    mode: getMode(),
     slot: selected,
     dimension: world.dim.id,
     player: player.serialize(),
@@ -591,6 +594,15 @@ window.addEventListener('beforeunload', () => {
 });
 
 window.addEventListener('keydown', async (e) => {
+  // Typing into a text field (creative item filter): don't trigger hotkeys.
+  if (e.target instanceof HTMLInputElement && e.target.type === 'text') {
+    if (e.code === 'Escape') {
+      e.target.blur();
+      if (invOpen) closeInventory();
+    }
+    return;
+  }
+  if (e.code === 'F4') { e.preventDefault(); toggleGameMode(); return; }
   if (e.code === 'KeyO') { e.preventDefault(); toggleSettings(); return; }
   if (settingsOpen) {
     if (e.code === 'Escape') closeSettings();
@@ -736,6 +748,7 @@ function tryAttackMob() {
 }
 
 function consumeDurability(slot, amount = 1) {
+  if (isCreative()) return; // tools never wear in creative
   const stack = inventory.get(slot);
   if (!stack) return;
   const maxDur = itemMaxDurability(stack.id);
@@ -754,28 +767,37 @@ function consumeDurability(slot, amount = 1) {
 
 function breakBlock(hit, toolId = null) {
   const id = world.getBlock(hit.x, hit.y, hit.z);
-  if (id === BLOCK.BEDROCK) return;
+  // Creative breaks everything (even bedrock); portal blocks are never mined
+  // directly (beginMining filters them; breaking frame obsidian collapses them).
+  const creative = isCreative();
+  if (id === BLOCK.BEDROCK && !creative) return;
   const center = new THREE.Vector3(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
   world.setBlock(hit.x, hit.y, hit.z, BLOCK.AIR);
   feedback.burst(id, center);
   feedback.play('break');
   achievements.trigger({ type: 'mine', block: id });
-  const xpGain = xpFromMining(id);
-  if (xpGain > 0) xpManager.spawnOrb(center, xpGain);
   const dropPos = new THREE.Vector3(hit.x + 0.5, hit.y + 0.55, hit.z + 0.5);
-  for (const d of blockDrop(id, toolId)) drops.spawn(d.id, d.count, dropPos);
-  if (id === BLOCK.LEAVES && hash01(hit.x, hit.y, hit.z) < APPLE_DROP_CHANCE) {
-    drops.spawn(ITEM.APPLE, 1, dropPos);
-  }
-  if (id === BLOCK.TALL_GRASS && hash01(hit.x, hit.y, hit.z) < SEED_DROP_CHANCE) {
-    drops.spawn(ITEM.WHEAT_SEEDS, 1, dropPos);
+  // Creative: blocks vanish with no drops and no mining XP (vanilla behavior).
+  // Container CONTENTS still spill below so items are never silently destroyed.
+  if (!creative) {
+    const xpGain = xpFromMining(id);
+    if (xpGain > 0) xpManager.spawnOrb(center, xpGain);
+    for (const d of blockDrop(id, toolId)) drops.spawn(d.id, d.count, dropPos);
+    if (id === BLOCK.LEAVES && hash01(hit.x, hit.y, hit.z) < APPLE_DROP_CHANCE) {
+      drops.spawn(ITEM.APPLE, 1, dropPos);
+    }
+    if (id === BLOCK.TALL_GRASS && hash01(hit.x, hit.y, hit.z) < SEED_DROP_CHANCE) {
+      drops.spawn(ITEM.WHEAT_SEEDS, 1, dropPos);
+    }
   }
   // Breaking the support block under a crop pops the crop too.
   const above = world.getBlock(hit.x, hit.y + 1, hit.z);
   if (isCropBlock(above)) {
     world.setBlock(hit.x, hit.y + 1, hit.z, BLOCK.AIR);
-    const cropPos = new THREE.Vector3(hit.x + 0.5, hit.y + 1.55, hit.z + 0.5);
-    for (const d of blockDrop(above)) drops.spawn(d.id, d.count, cropPos);
+    if (!creative) {
+      const cropPos = new THREE.Vector3(hit.x + 0.5, hit.y + 1.55, hit.z + 0.5);
+      for (const d of blockDrop(above)) drops.spawn(d.id, d.count, cropPos);
+    }
   }
   if (id === BLOCK.FURNACE || id === BLOCK.FURNACE_LIT) {
     for (const d of furnaces.remove(dimKey(hit.x, hit.y, hit.z))) drops.spawn(d.id, d.count, dropPos);
@@ -828,13 +850,24 @@ function updateCrack(hit, progress) {
   crackMesh.material.opacity = 0.12 + progress * 0.58;
 }
 
+const CREATIVE_BREAK_TIME = 0.05;
+
 function beginMining(hit) {
   if (!hit) return cancelMining();
   const id = world.getBlock(hit.x, hit.y, hit.z);
   const heldStack = inventory.get(selected);
   const toolId = heldStack ? heldStack.id : null;
-  const duration = breakDuration(id, toolId, stackEnchant(heldStack, 'efficiency'));
-  if (!Number.isFinite(duration)) return cancelMining();
+  // Creative: near-instant break for everything (bedrock included) EXCEPT
+  // portal blocks — punching a portal out of existence leaves odd half-portal
+  // state, so the frame must be broken instead (same as survival).
+  let duration;
+  if (isCreative()) {
+    if (id === BLOCK.NETHER_PORTAL) return cancelMining();
+    duration = CREATIVE_BREAK_TIME;
+  } else {
+    duration = breakDuration(id, toolId, stackEnchant(heldStack, 'efficiency'));
+    if (!Number.isFinite(duration)) return cancelMining();
+  }
   mining = { key: hitKey(hit), id, toolId, elapsed: 0, duration, hit: { ...hit } };
   breakProgressEl.classList.add('active');
   updateCrack(hit, 0);
@@ -868,8 +901,58 @@ function updateMining(dt) {
   }
 }
 
+// Middle-click pick block: what a picked technical/state block turns into.
+const PICK_REMAP = {
+  [BLOCK.FURNACE_LIT]: BLOCK.FURNACE,
+  [BLOCK.DOOR_TOP]: BLOCK.DOOR_BOTTOM,
+  [BLOCK.DOOR_TOP_OPEN]: BLOCK.DOOR_BOTTOM,
+  [BLOCK.DOOR_BOTTOM_OPEN]: BLOCK.DOOR_BOTTOM,
+  [BLOCK.BED_HEAD]: BLOCK.BED_FOOT,
+  [BLOCK.PISTON_HEAD]: BLOCK.PISTON,
+  [BLOCK.POWERED_RAIL_ON]: BLOCK.POWERED_RAIL,
+  [BLOCK.REPEATER_ON]: BLOCK.REPEATER,
+  [BLOCK.REDSTONE_LAMP_ON]: BLOCK.REDSTONE_LAMP,
+  [BLOCK.WHEAT_1]: BLOCK.WHEAT_0,
+  [BLOCK.WHEAT_2]: BLOCK.WHEAT_0,
+  [BLOCK.WHEAT_3]: BLOCK.WHEAT_0,
+  [BLOCK.CARROT_1]: BLOCK.CARROT_0,
+  [BLOCK.CARROT_2]: BLOCK.CARROT_0,
+};
+
+// Creative middle-click: put the targeted block in the hotbar. If a hotbar
+// stack of it already exists select it; otherwise replace the current slot
+// with a full stack. Survival: does nothing (no free blocks).
+function pickBlockUnderCrosshair() {
+  if (!isCreative()) return;
+  const hit = castFromCamera();
+  if (!hit) return;
+  let id = world.getBlock(hit.x, hit.y, hit.z);
+  id = PICK_REMAP[id] !== undefined ? PICK_REMAP[id] : id;
+  if (id === BLOCK.AIR || id === BLOCK.NETHER_PORTAL || !BLOCKS[id]) return;
+  for (let i = 0; i < HOTBAR_SIZE; i++) {
+    const s = inventory.get(i);
+    if (s && s.id === id) {
+      setSelected(i);
+      return;
+    }
+  }
+  inventory.slots[selected] = { id, count: itemStackMax(id) };
+  refreshHotbar();
+}
+
 window.addEventListener('contextmenu', (e) => e.preventDefault());
+// Middle mouse button anywhere in the page: never autoscroll.
+window.addEventListener('mousedown', (e) => {
+  if (e.button === 1) e.preventDefault();
+});
 renderer.domElement.addEventListener('mousedown', (e) => {
+  if (e.button === 1) {
+    e.preventDefault();
+    if (!invOpen && !furnaceOpen && !chestOpen && player.controls.isLocked && survival.alive) {
+      pickBlockUnderCrosshair();
+    }
+    return;
+  }
   if (invOpen || furnaceOpen || chestOpen || !player.controls.isLocked || !survival.alive) return;
   feedback.ensureAudio();
 
@@ -896,7 +979,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         return;
       }
       if (m.type === 'wolf' && !m.tame && heldNow && heldNow.id === ITEM.BONE) {
-        inventory.removeOneAt(selected);
+        if (!isCreative()) inventory.removeOneAt(selected);
         const res = mobs.tryTame(m);
         if (res === 'tamed') {
           achievements.trigger({ type: 'tame' });
@@ -917,7 +1000,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         return;
       }
       if (heldNow && mobs.feedAnimal(m, heldNow.id)) {
-        inventory.removeOneAt(selected);
+        if (!isCreative()) inventory.removeOneAt(selected);
         triggerSwing();
         feedback.play('eat');
         refreshHotbar();
@@ -1033,7 +1116,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     // Minecart item: place a cart on a rail.
     if (held && held.id === ITEM.MINECART && hit && isRail(hitBlock)) {
       if (minecarts.spawn(hit.x + 0.5, hit.y, hit.z + 0.5)) {
-        inventory.removeOneAt(selected);
+        if (!isCreative()) inventory.removeOneAt(selected);
         triggerSwing();
         feedback.play('place');
         refreshHotbar();
@@ -1052,7 +1135,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         survival._setMessage('The Overlord already walks');
         return;
       }
-      inventory.removeOneAt(selected);
+      if (!isCreative()) inventory.removeOneAt(selected);
       mobs.spawnBoss(new THREE.Vector3(hit.x + 0.5, hit.y + 7, hit.z + 0.5));
       achievements.trigger({ type: 'summon' });
       feedback.play('bossRoar');
@@ -1068,7 +1151,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       camera.getWorldDirection(_dir);
       const tp = world.raycastVoxel(_origin, _dir, 24);
       if (tp) {
-        inventory.removeOneAt(selected);
+        if (!isCreative()) inventory.removeOneAt(selected);
         feedback.warpBurst(player.getObject().position.clone());
         const lx = tp.x + tp.nx, ly = tp.y + tp.ny, lz = tp.z + tp.nz;
         player.spawn(lx + 0.5, ly + 1.62 + 0.1, lz + 0.5);
@@ -1098,7 +1181,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     if (plantAs && hitBlock === BLOCK.FARMLAND &&
         hit && world.getBlock(hit.x, hit.y + 1, hit.z) === BLOCK.AIR) {
       world.setBlock(hit.x, hit.y + 1, hit.z, plantAs);
-      inventory.removeOneAt(selected);
+      if (!isCreative()) inventory.removeOneAt(selected);
       triggerSwing();
       feedback.play('place');
       refreshHotbar();
@@ -1111,7 +1194,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       const next = nextCropStage(hitBlock);
       if (next) {
         world.setBlock(hit.x, hit.y, hit.z, next);
-        inventory.removeOneAt(selected);
+        if (!isCreative()) inventory.removeOneAt(selected);
         triggerSwing();
         feedback.play('place');
         feedback.placeBurst(next, new THREE.Vector3(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5));
@@ -1122,7 +1205,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     }
 
     if (held && held.id === ITEM.BOW) {
-      if (inventory.count(ITEM.ARROW) > 0) {
+      if (isCreative() || inventory.count(ITEM.ARROW) > 0) {
         bowCharging = true;
         bowCharge = 0;
       } else {
@@ -1132,7 +1215,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     }
 
     // Right-click with food selected eats it when no usable block is targeted.
-    if (held && foodValue(held.id) > 0) {
+    // Eating is disabled in creative (hunger is pinned at max).
+    if (!isCreative() && held && foodValue(held.id) > 0) {
       if (survival.eat(foodValue(held.id))) {
         if (held.id === ITEM.GOLDEN_APPLE) survival.heal(20); // full golden-apple heal
         inventory.removeOneAt(selected);
@@ -1173,7 +1257,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         const dz = dx === 0 ? Math.sign(_dir.z) : 0;
         world.setBlock(px + dx, py, pz + dz, BLOCK.BED_HEAD);
       }
-      inventory.removeOneAt(selected);
+      if (!isCreative()) inventory.removeOneAt(selected); // placing is free in creative
       triggerSwing();
       feedback.play('place');
       feedback.placeBurst(blockId, new THREE.Vector3(px + 0.5, py + 0.5, pz + 0.5));
@@ -1202,7 +1286,8 @@ function releaseBow() {
   if (charge < 0.15) return;                 // tap = no shot, arrow kept
   const heldStack = inventory.get(selected);
   if (!heldStack || heldStack.id !== ITEM.BOW) return;
-  if (inventory.remove(ITEM.ARROW, 1) <= 0) return;
+  // Creative never consumes arrows (and can fire without any).
+  if (!isCreative() && inventory.remove(ITEM.ARROW, 1) <= 0) return;
   camera.getWorldPosition(_origin);
   camera.getWorldDirection(_dir);
   const damage = Math.round(2 + charge * 7);
@@ -1304,6 +1389,37 @@ showHudToggleEl.addEventListener('change', () => {
 });
 settingsCloseEl.addEventListener('click', closeSettings);
 applySettings(false);
+
+// ---- Game mode (survival / creative) ------------------------------------------
+const modeSurvivalBtn = document.getElementById('modeSurvivalBtn');
+const modeCreativeBtn = document.getElementById('modeCreativeBtn');
+
+function updateModeButtons() {
+  modeSurvivalBtn.classList.toggle('active', !isCreative());
+  modeCreativeBtn.classList.toggle('active', isCreative());
+}
+
+function toggleGameMode() {
+  setMode(isCreative() ? 'survival' : 'creative');
+}
+
+modeSurvivalBtn.addEventListener('click', () => setMode('survival'));
+modeCreativeBtn.addEventListener('click', () => setMode('creative'));
+updateModeButtons();
+
+// Refresh everything that depends on the mode when it flips (settings buttons,
+// the inventory screen layout, flight, mob targeting).
+setOnModeChange((m) => {
+  if (m !== 'creative') player.flying = false;
+  mobs.playerInvulnerable = isCreative();
+  updateModeButtons();
+  if (invOpen) {
+    applyInventoryMode();
+    refreshInventory();
+  }
+  survival._setMessage(m === 'creative' ? 'Game mode: Creative' : 'Game mode: Survival', 2.5);
+  scheduleSave();
+});
 
 // ---- HUD and survival UI ----------------------------------------------------
 const hud = document.getElementById('hud');
@@ -1416,6 +1532,7 @@ for (let i = 0; i < 9; i++) {
   craftCells.push(cell);
   craftGridEl.appendChild(cell);
 }
+craftOutEl.innerHTML = '<span class="count"></span>'; // paintCell expects a count span
 craftOutEl.addEventListener('mousedown', (e) => { e.preventDefault(); onTakeOutput(); });
 
 // Backpack rows (slots HOTBAR_SIZE..INVENTORY_SIZE-1) then the hotbar row.
@@ -1579,10 +1696,83 @@ function onTakeOutput() {
   scheduleSave();
 }
 
+// ---- Creative item picker -----------------------------------------------------
+// In creative the crafting grid + recipe list are replaced by a scrollable
+// "all items" panel with a text filter. Backpack + hotbar grids stay live.
+const creativePanelEl = document.getElementById('creativePanel');
+const creativeGridEl = document.getElementById('creativeGrid');
+const creativeFilterEl = document.getElementById('creativeFilter');
+const craftRowEl = document.getElementById('craftRow');
+const recipesTitleEl = document.getElementById('recipesTitle');
+const recipeListEl = document.getElementById('recipeList');
+
+// Blocks that are internal state rather than givable things: paired halves
+// (door top / bed head / piston head), lit or powered variants, crop growth
+// stages and the portal interior. Their base form IS givable. WHEAT_0/CARROT_0
+// stay (plantable seedlings) and MOB_SPAWNER stays available for fun.
+const CREATIVE_EXCLUDED = new Set([
+  BLOCK.AIR, BLOCK.FURNACE_LIT, BLOCK.DOOR_TOP, BLOCK.DOOR_TOP_OPEN,
+  BLOCK.DOOR_BOTTOM_OPEN, BLOCK.BED_HEAD, BLOCK.PISTON_HEAD, BLOCK.REPEATER_ON,
+  BLOCK.POWERED_RAIL_ON, BLOCK.REDSTONE_LAMP_ON, BLOCK.NETHER_PORTAL,
+  BLOCK.WHEAT_1, BLOCK.WHEAT_2, BLOCK.WHEAT_3, BLOCK.CARROT_1, BLOCK.CARROT_2,
+]);
+
+const CREATIVE_IDS = [
+  ...Object.keys(BLOCKS).map(Number).filter((id) => !CREATIVE_EXCLUDED.has(id)),
+  ...Object.keys(ITEMS).map(Number),
+];
+
+// Click: full stack on the cursor. Shift-click: full stack straight into the
+// inventory. Right-click: a single item (stacks onto a matching cursor stack).
+function onCreativeEntryClick(id, e) {
+  if (e.button === 2) {
+    if (held && held.id === id && held.count < itemStackMax(id)) held.count += 1;
+    else held = { id, count: 1 };
+  } else if (e.shiftKey) {
+    inventory.addStack({ id, count: itemStackMax(id) });
+  } else {
+    held = { id, count: itemStackMax(id) };
+  }
+  refreshInventory();
+}
+
+function rebuildCreativeGrid() {
+  const filter = creativeFilterEl.value.trim().toLowerCase();
+  creativeGridEl.innerHTML = '';
+  for (const id of CREATIVE_IDS) {
+    if (filter && !itemDef(id).name.toLowerCase().includes(filter)) continue;
+    const cell = makeCell((e) => onCreativeEntryClick(id, e));
+    paintCell(cell, { id, count: 1 });
+    creativeGridEl.appendChild(cell);
+  }
+}
+
+creativeFilterEl.addEventListener('input', rebuildCreativeGrid);
+
+// Show the crafting UI (survival) or the item picker (creative). In creative
+// the picker also replaces the crafting-table screen: everything is free, so
+// there is nothing to craft for.
+function applyInventoryMode() {
+  const creative = isCreative();
+  craftTitleEl.classList.toggle('hidden', creative);
+  craftRowEl.classList.toggle('hidden', creative);
+  recipesTitleEl.classList.toggle('hidden', creative);
+  recipeListEl.classList.toggle('hidden', creative);
+  creativePanelEl.classList.toggle('hidden', !creative);
+  if (creative) {
+    // Return anything parked in the (now hidden) craft grid.
+    for (let i = 0; i < 9; i++) {
+      if (craft[i]) { inventory.addStack(craft[i]); craft[i] = null; }
+    }
+    rebuildCreativeGrid();
+  }
+}
+
 function openInventory(size = 2) {
   if (!survival.alive) return;
   invOpen = true;
   setCraftSize(size);
+  applyInventoryMode();
   if (player.controls.isLocked) player.controls.unlock();
   inventoryEl.classList.remove('hidden');
   refreshInventory();
@@ -2481,6 +2671,7 @@ function animate() {
 
   world.update(player.getObject().position);
   dayNight.update(dt, player.getObject().position);
+  mobs.playerInvulnerable = isCreative();
   mobs.update(dt, player, survival, dayNight.t);
   if (mobs.lastExplosion) {
     feedback.play('explode');
@@ -2638,7 +2829,8 @@ function animate() {
     `XYZ ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}\n` +
     `Biome ${biome}\n` +
     `Time ${dayNight.clock()}${dayNight.paused ? ' (paused)' : ''}\n` +
-    `State ${player.inWater ? 'Swimming' : 'Walking'}\n` +
+    `Mode ${getMode()}\n` +
+    `State ${player.flying ? 'Flying' : player.inWater ? 'Swimming' : 'Walking'}\n` +
     `Held: ${heldName}` +
     (saveToast > 0 ? '\nSaved' : '');
 

@@ -118,7 +118,15 @@ function v7to8(save) {
   return save;
 }
 
-const MIGRATIONS = { 7: v7to8 };
+// v8 -> v9: saves gained a game-mode field ('survival' | 'creative'). Every
+// pre-v9 world was necessarily survival.
+function v8to9(save) {
+  save.mode = 'survival';
+  save.version = 9;
+  return save;
+}
+
+const MIGRATIONS = { 7: v7to8, 8: v8to9 };
 
 export function migrateSave(save) {
   if (!save || typeof save.version !== 'number') return save;

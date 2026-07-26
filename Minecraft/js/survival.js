@@ -5,6 +5,7 @@
 // =============================================================================
 
 import { BLOCK, armorPoints } from './config.js';
+import { isCreative } from './gamemode.js';
 
 const MAX_HEALTH = 20;
 const MAX_HUNGER = 20;
@@ -85,6 +86,20 @@ export class Survival {
     if (this.damageFlash > 0) this.damageFlash = Math.max(0, this.damageFlash - dt * 2.8);
     if (!this.alive || !active) return;
 
+    // Creative mode: no hunger drain, drowning, starvation or regen concerns.
+    // Pinning every stat at max is the simplest way to keep the HUD sane.
+    if (isCreative()) {
+      this.health = MAX_HEALTH;
+      this.hunger = MAX_HUNGER;
+      this.air = MAX_AIR;
+      this._drownTimer = 0;
+      this._starveTimer = 0;
+      this._regenTimer = 0;
+      this._contactTimer = 0;
+      this._lavaTimer = 0;
+      return;
+    }
+
     this._updateAir(dt, player);
     this._updateHunger(dt, player);
     this._updateFallDamage(player);
@@ -105,6 +120,9 @@ export class Survival {
   }
 
   damage(amount, reason) {
+    // Creative players are invulnerable to every damage source (mobs, falls,
+    // lava, cactus, explosions, arrows) — death cannot occur.
+    if (isCreative()) return;
     if (!this.alive || amount <= 0) return;
     let reduced = amount;
     if (reason !== 'Starving') {
@@ -125,6 +143,7 @@ export class Survival {
   // Eat food: restores hunger. Returns true if it had any effect (so the caller
   // only consumes the item when eating actually helped).
   eat(amount) {
+    if (isCreative()) return false; // hunger is pinned; nothing to restore
     if (!this.alive || amount <= 0) return false;
     if (this.hunger >= MAX_HUNGER) return false;
     this.hunger = clamp(this.hunger + amount, 0, MAX_HUNGER);

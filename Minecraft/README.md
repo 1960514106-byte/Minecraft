@@ -160,6 +160,9 @@ offline - no internet connection or CDN is required. See the import map in
 | Open settings | `O` |
 | Reset world and wipe save | `K` |
 | Release the mouse | `Esc` |
+| Toggle survival / creative mode | `F4` (also in Settings) |
+| Toggle flight (creative) | double-tap `Space`; `Space` up, `Shift` down |
+| Pick block (creative) | Middle click a block |
 
 ## Project layout
 

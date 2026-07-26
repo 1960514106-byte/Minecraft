@@ -19,6 +19,7 @@ import {
 } from '../Minecraft/js/crafting.js';
 import { Noise } from '../Minecraft/js/noise.js';
 import { migrateSave } from '../Minecraft/js/storage.js';
+import { getMode, setMode, isCreative, setOnModeChange } from '../Minecraft/js/gamemode.js';
 
 let failures = 0;
 function assert(cond, msg) {
@@ -202,7 +203,25 @@ function grid(...entries) {
     'end descriptor');
 }
 
-// ---- Save migration (v7 -> v8) --------------------------------------------------------
+// ---- Game mode module (three-free) ----------------------------------------------------
+{
+  assert(getMode() === 'survival', 'default mode is survival');
+  assert(isCreative() === false, 'isCreative() false by default');
+  let notified = null;
+  setOnModeChange((m) => { notified = m; });
+  setMode('creative');
+  assert(getMode() === 'creative' && isCreative() === true, 'setMode(creative) applies');
+  assert(notified === 'creative', 'onChange hook fires with the new mode');
+  notified = null;
+  setMode('creative');
+  assert(notified === null, 'onChange does not fire when the mode is unchanged');
+  setMode('nonsense');
+  assert(getMode() === 'survival', 'unknown modes fall back to survival');
+  setMode('survival');
+  setOnModeChange(null);
+}
+
+// ---- Save migration (v7 -> v9) --------------------------------------------------------
 {
   const v7 = {
     version: 7,
@@ -217,7 +236,8 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 8, 'migrated save version is 8');
+  assert(m.version === 9, 'migrated save version is 9 (v7 chains through v8 to v9)');
+  assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
   assert(m.inventory[3].id === 1002 && m.inventory[3].durability === 40,
@@ -237,11 +257,17 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 8 && v3.inventory[0].id === 1033, 'v3 save migrates through the chain');
+  assert(v3.version === 9 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+    'v3 save migrates through the whole chain');
 
-  // A current save passes through unchanged.
+  // A v8 save only gains the mode field.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 8 && v8.inventory[0].id === 1033, 'v8 save is a no-op');
+  assert(v8.version === 9 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+    'v8 save upgrades to v9 with mode survival, ids untouched');
+
+  // A current save passes through unchanged (creative mode preserved).
+  const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
+  assert(v9.version === 9 && v9.mode === 'creative', 'v9 save is a no-op (mode preserved)');
 }
 
 // ---- Noise determinism ------------------------------------------------------------------

@@ -127,6 +127,10 @@ export class MobManager {
     this.onShootFire = null;
     // The mob the player most recently attacked (tamed wolves assist).
     this.playerTarget = null;
+    // Set by main.js while the player is in creative mode: hostile mobs stop
+    // targeting/attacking (they just wander), projectiles are never aimed and
+    // the boss stops its volleys/slams. Wandering, taming and breeding still work.
+    this.playerInvulnerable = false;
     this._spawnerCooldowns = new Map();
     this._spawnerTimer = 0;
   }
@@ -837,6 +841,18 @@ export class MobManager {
   // Returns true if the mob removed itself (creeper explosion).
   _hostileAI(m, dt, dist, dx, dz, player, survival, playerPos, night) {
     const p = m.mesh.position;
+    // Creative player: hostiles ignore them entirely and just wander.
+    if (this.playerInvulnerable) {
+      if (m.type === 'creeper' && (m.fusing || m.fuseTimer > 0)) {
+        m.fusing = false;
+        m.fuseTimer = 0;
+        if (m.hurtTimer <= 0) {
+          for (const child of m.mesh.children) child.material = child.userData.baseMaterial;
+        }
+      }
+      this._wander(m, dt);
+      return false;
+    }
     const eye = p.clone().add(new THREE.Vector3(0, 1.1, 0));
     const target = playerPos.clone().add(new THREE.Vector3(0, -0.25, 0));
     const canSeePlayer = dist < 26 && this.hasLineOfSight(eye, target);
@@ -1024,7 +1040,7 @@ export class MobManager {
       } else {
         m.mesh.rotation.y = Math.atan2(dx, dz);
       }
-    } else if (m.aggroTimer > 0) {
+    } else if (m.aggroTimer > 0 && !this.playerInvulnerable) {
       // Provoked wild pack hunts the player.
       if (dist > 0.01) {
         this.tryMove(m, (dx / dist) * WOLF_SPEED, (dz / dist) * WOLF_SPEED, dt);
@@ -1052,6 +1068,9 @@ export class MobManager {
     p.y += (ty - p.y) * Math.min(1, dt * 1.5);
     p.z += (tz - p.z) * Math.min(1, dt * 1.2);
     m.mesh.rotation.y = Math.atan2(playerPos.x - p.x, playerPos.z - p.z);
+
+    // Creative player: the boss keeps circling but never attacks.
+    if (this.playerInvulnerable) return;
 
     // Triple fireball volley.
     m.attackTimer -= dt;
