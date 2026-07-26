@@ -88,6 +88,12 @@ const BLOCK_COLORS = {
   [BLOCK.EMERALD_ORE]: [70, 190, 110],
   [BLOCK.LAPIS_ORE]: [55, 85, 190],
   [BLOCK.EMERALD_BLOCK]: [56, 196, 112],
+  // Phase 9: the End.
+  [BLOCK.END_STONE]: [221, 223, 165],
+  [BLOCK.END_PORTAL_FRAME]: [170, 178, 120],
+  [BLOCK.END_PORTAL]: [16, 12, 34],
+  [BLOCK.DRAGON_EGG]: [34, 18, 44],
+  [BLOCK.BEACON]: [180, 235, 245],
 };
 // All 16 wool colours share the registry palette.
 for (const woolId of WOOL_BLOCKS) BLOCK_COLORS[woolId] = WOOL_RGB[woolId];

@@ -523,3 +523,73 @@ Villages 2.0 (`?debug=1`, `__game.villageCenters`):
       twice as fast (zombie-siege lite); the hostile cap is unchanged.
 - [ ] Debug handles: `PROFESSIONS`, `professionForPos`, `villageCenters`,
       `openTrade(mob)` / `closeTrade()` / `tradeOpen` / `tradingVillager`.
+
+## Phase 9 — The End (SAVE_VERSION 16)
+
+Automated: `node test/smoke.mjs` covers the new ids/models (end portal frame
+`endframe`, end portal `endportal`, end stone, dragon egg, beacon light 15),
+the eye-of-ender + beacon recipes, `strongholdCenter()` determinism + the
+600–1100 block distance band, `strongholdBaseY` bounds, the 12-cell frame
+ring, `tryActivateEndPortal` (11 eyes = no, 12 eyes = 3×3 fill) against a
+mock world, the stronghold loot table, the ender_dragon/crystal registry
+entries + AI handler names, the End spawn list (endermen only) and the
+v15→v16 migration (`dims.end` bucket + `dragonDefeated: false`, existing data
+preserved). Browser: `browsercheck-phase9.mjs` (scratchpad).
+
+Stronghold + eyes of ender:
+- [ ] Craft an eye of ender (ender pearl + blaze powder, shapeless). Right-
+      click with it in the open: a glowing eye flies up and toward the
+      stronghold for ~3 s, then drops back as an item (80%) or shatters.
+- [ ] Follow the eyes ~600–1100 blocks to the stronghold; dig down at the
+      convergence point: stone-brick corridors (mossy mix), a bookshelf
+      library with a loot chest (pearls/emeralds/iron/lapis/bread), a second
+      chest in the east gallery, and the portal room.
+- [ ] Portal room: 12 end portal frames ring a 3×3 pool over a support
+      platform, 3 frames already have eyes; a silverfish spawner sits in
+      front (silverfish attack while you work) and a lava basin glows beside
+      the platform. Frames are unbreakable in survival and blast-proof.
+- [ ] Right-click each empty frame with an eye (consumed in survival); when
+      the 12th eye lands the interior fills with dark starfield portal
+      blocks + a portal sound.
+
+The End:
+- [ ] Stand in the portal ~1 s: you arrive on a 5×5 obsidian platform at the
+      island edge (x≈95). Sky is purple-black, no sun/moon/clouds, long fog.
+      "The End?" achievement fires.
+- [ ] The island is end stone with 8 obsidian pillars on a ring; an end
+      crystal (spinning pink cube on a bedrock base) tops each pillar; the
+      Ender Dragon circles with the boss bar reading ENDER DRAGON.
+- [ ] While any crystal lives, a pink beam links it to the dragon and the
+      dragon visibly regenerates. Shooting a crystal (1 hp, arrows work)
+      explodes it — 6 damage within 4 blocks.
+- [ ] The dragon dive-bombs every ~12 s (10 damage + big knockback) and
+      perches on the island centre every ~45 s for 8 s — melee it there for
+      full damage (elsewhere damage is halved); standing within 4 blocks of
+      the perched dragon ticks 1 dmg/s breath damage.
+- [ ] Killing the dragon: 12 XP orbs (120 XP) rain down, the bedrock exit
+      fountain rises at the island centre with END_PORTAL fill and the
+      dragon egg on its column; "Free the End" unlocks; boss bar clears.
+- [ ] Right-clicking the dragon egg teleports it 1–5 blocks; mining it drops
+      the egg block (trophy).
+- [ ] Stepping into the exit portal returns you to your overworld spawn and
+      rolls the scrolling credits; Esc or click dismisses them.
+- [ ] Endermen (only) spawn in the End; walking off the island = falling to
+      your death ("The void"); dying in the End respawns you in the
+      overworld. Re-entering before victory restarts the fight (dragon +
+      8 fresh crystals).
+- [ ] Save in the End, reload: you wake up in the End; island edits persist;
+      after victory re-entering spawns NO new dragon (dragonDefeated saved).
+
+Beacon:
+- [ ] Craft a beacon (3 obsidian bottom row, nether star centre, 5 glass).
+- [ ] Placed on a 3×3 base of iron and/or gold blocks: a white light beam
+      rises to the sky and Speed I re-applies every 4 s within 32 blocks;
+      "Beaconator" unlocks. Breaking the base stops the aura + beam.
+- [ ] An all-diamond or all-emerald (or mixed diamond/emerald) base gives
+      Speed II + Regeneration I instead.
+- [ ] Beam/aura survive save + reload (beacons are rescanned from edits).
+
+Regressions:
+- [ ] Nether portals still travel both ways (separate timer/cooldown from
+      end portals); the Overlord fight is unchanged.
+- [ ] `browsercheck-phase8.mjs` and `browsercheck-phase5b.mjs` stay green.

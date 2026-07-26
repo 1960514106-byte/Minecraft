@@ -7,6 +7,7 @@
 //   portal {}                 boss   {}                summon {}
 //   enchant {}                trade  {}                level  { level }
 //   structure { kind }        redstone { block }   brew {}
+//   end {}                    dragon {}                beacon {}
 // =============================================================================
 
 import { BLOCK, ITEM } from './config.js';
@@ -51,6 +52,10 @@ const ACHIEVEMENTS = [
   { id: 'blaze', name: 'Into Fire', desc: 'Obtain a blaze rod', check: (ev) => ev.type === 'pickup' && ev.item === ITEM.BLAZE_ROD },
   { id: 'summon', name: 'Uninvited Guest', desc: 'Summon the Nether Overlord', check: (ev) => ev.type === 'summon' },
   { id: 'boss', name: 'Overlord Overthrown', desc: 'Defeat the Nether Overlord', check: (ev) => ev.type === 'boss' },
+  // --- the End (Phase 9) ---
+  { id: 'end', name: 'The End?', desc: 'Enter the End', check: (ev) => ev.type === 'end' },
+  { id: 'dragon', name: 'Free the End', desc: 'Defeat the Ender Dragon', check: (ev) => ev.type === 'dragon' },
+  { id: 'beacon', name: 'Beaconator', desc: 'Place a working beacon', check: (ev) => ev.type === 'beacon' },
 ];
 
 export class AchievementManager {

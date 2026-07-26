@@ -362,6 +362,29 @@
     }
     @keyframes toastIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
+    /* Phase 9: end-game credits (scrolls after returning through the exit portal) */
+    #credits.hidden { display: none; }
+    #credits {
+      position: fixed; inset: 0; z-index: 120; overflow: hidden;
+      background: radial-gradient(ellipse at center, #120a24 0%, #05030c 75%);
+      cursor: pointer;
+    }
+    #creditsInner {
+      position: absolute; left: 0; right: 0; top: 100%;
+      text-align: center; color: #d9cff2;
+      text-shadow: 0 0 8px rgba(150, 100, 255, 0.5);
+      animation: creditsScroll 38s linear forwards;
+    }
+    #creditsInner h1 { color: #b98aff; font-size: 42px; letter-spacing: 4px; margin-bottom: 4px; }
+    #creditsInner h2 { color: #8fd4b0; font-size: 20px; letter-spacing: 2px; margin: 34px 0 10px; }
+    #creditsInner p { font-size: 14px; line-height: 1.8; margin: 4px 0; opacity: 0.9; }
+    #creditsInner .dim { opacity: 0.55; font-size: 12px; }
+    #creditsSkip {
+      position: absolute; bottom: 14px; right: 18px; z-index: 121;
+      color: rgba(255,255,255,0.55); font-size: 12px; pointer-events: none;
+    }
+    @keyframes creditsScroll { from { transform: translateY(0); } to { transform: translateY(-160%); } }
+
     /* Achievements page (toggle with J) */
     #achievementsScreen {
       position: fixed; inset: 0; z-index: 28;
@@ -675,6 +698,31 @@
       <div class="gridMain hotbarRow" id="chestHotbarGrid"></div>
       <div class="hint">Left click moves stacks &nbsp;|&nbsp; right click splits / places one &nbsp;|&nbsp; <kbd>E</kbd> / <kbd>Esc</kbd> to close</div>
     </div>
+  </div>
+
+  <!-- Phase 9: end-game credits. Shown after stepping through the exit portal
+       once the dragon is dead; click or Esc dismisses. -->
+  <div id="credits" class="hidden">
+    <div id="creditsInner">
+      <h1>VOXELCRAFT</h1>
+      <p class="dim">a browser Minecraft</p>
+      <h2>THE END IS FREE</h2>
+      <p>The Ender Dragon has fallen and the portal home stands open.</p>
+      <p>Thank you for playing all the way to the edge of the void.</p>
+      <h2>YOUR JOURNEY</h2>
+      <p>Punched a tree &middot; smelted iron &middot; found diamonds</p>
+      <p>Braved the Nether &middot; brewed potions &middot; traded with villagers</p>
+      <p>Followed the eyes of ender to a buried stronghold</p>
+      <p>And freed the End.</p>
+      <h2>CONTROLS RECAP</h2>
+      <p>WASD move &middot; Space jump &middot; E inventory &middot; J achievements</p>
+      <p>M minimap &middot; O settings &middot; F4 game mode &middot; T skip time</p>
+      <h2>WHAT'S LEFT</h2>
+      <p>The world is still yours: build, breed, brew, automate.</p>
+      <p>The dragon egg on the exit portal is proof you were here.</p>
+      <p class="dim" style="margin-top:40px;">Press Esc or click to return to your world</p>
+    </div>
+    <div id="creditsSkip">Esc / click to skip</div>
   </div>
 
   <div id="touch-controls">

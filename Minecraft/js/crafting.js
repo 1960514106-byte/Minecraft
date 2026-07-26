@@ -72,6 +72,9 @@ const SHAPELESS = [
   // Fermented spider eye: sugar + spider eye (vanilla adds a brown mushroom —
   // no mushroom item exists, documented simplification)
   { need: { [ITEM.SUGAR]: 1, [ITEM.SPIDER_EYE]: 1 }, out: { id: ITEM.FERMENTED_SPIDER_EYE, count: 1 } },
+  // ---- Phase 9: the End -----------------------------------------------------------
+  // Eye of ender: an ender pearl charged with blaze powder
+  { need: { [ITEM.ENDER_PEARL]: 1, [ITEM.BLAZE_POWDER]: 1 }, out: { id: ITEM.EYE_OF_ENDER, count: 1 } },
 ];
 
 // Inventory 2x2 recipes. `shape` is [top-left, top-right, bottom-left, bottom-right].
@@ -232,6 +235,9 @@ const SHAPED_3 = [
   { shape: [BLOCK.IRON_BLOCK, BLOCK.IRON_BLOCK, BLOCK.IRON_BLOCK, null, ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, ITEM.IRON_INGOT, ITEM.IRON_INGOT], out: { id: BLOCK.ANVIL, count: 1 } },
   // Shield: 6 planks in a Y around an iron ingot cap
   { shape: [BLOCK.PLANK, ITEM.IRON_INGOT, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, null, BLOCK.PLANK, null], out: { id: ITEM.SHIELD, count: 1 } },
+  // ---- Phase 9: the End -----------------------------------------------------------
+  // Beacon: 5 glass around a nether star, on 3 obsidian (vanilla shape)
+  { shape: [BLOCK.GLASS, BLOCK.GLASS, BLOCK.GLASS, BLOCK.GLASS, ITEM.NETHER_STAR, BLOCK.GLASS, BLOCK.OBSIDIAN, BLOCK.OBSIDIAN, BLOCK.OBSIDIAN], out: { id: BLOCK.BEACON, count: 1 } },
 ];
 
 function activeSlots(grid, size) {

@@ -36,6 +36,7 @@ export const AI_NAMES = [
   'zombie', 'skeleton', 'creeper', 'spider', 'enderman', 'wolf', 'passive',
   'pigman', 'fireImp', 'boss',
   'ghast', 'blaze', 'slime', 'witch', 'golem', 'silverfish', 'squid',
+  'dragon', 'crystal',
 ];
 
 export const MOB_DEFS = {
@@ -81,8 +82,13 @@ export const MOB_DEFS = {
     name: 'Enderman', hp: 40, speed: 3.2, hostile: true, ai: 'enderman', mesh: 'enderman',
     xp: 8, melee: { damage: 4, label: 'Enderman strike' },
     drops: [{ id: ITEM.ENDER_PEARL, prob: 0.7, min: 1, max: 2 }],
-    // ~10% of night picks used to be endermen (w / (w + 4) = 0.1).
-    spawn: { dim: 'overworld', time: 'night', weight: 0.44 },
+    // ~10% of night picks used to be endermen (w / (w + 4) = 0.1). Phase 9:
+    // they also dominate the End (the only natural spawn there) — `spawn` can
+    // be a LIST of descriptors, one per dimension.
+    spawn: [
+      { dim: 'overworld', time: 'night', weight: 0.44 },
+      { dim: 'end', time: null, weight: 1 },
+    ],
   },
   witch: {
     name: 'Witch', hp: 26, speed: 1.9, hostile: true, ai: 'witch', mesh: 'witch',
@@ -252,6 +258,26 @@ export const MOB_DEFS = {
     spawn: null, // summoned via the Overlord Sigil
     sound: { name: 'bossRoar', range: 30, prob: 0.3 },
   },
+
+  // ---- Phase 9: the End -----------------------------------------------------------
+  ender_dragon: {
+    // xp: 0 — the kill pays out through the victory XP shower in main.js
+    // (12 orbs x 10 = 120 XP), not the normal per-kill orb. Documented choice.
+    name: 'Ender Dragon', hp: 200, speed: 6, hostile: true, ai: 'dragon', mesh: 'dragon',
+    xp: 0, flies: true, persist: true,
+    drops: [],
+    spawn: null, // spawned by main.js when a player enters the End pre-victory
+    sound: { name: 'bossRoar', range: 60, prob: 0.25 },
+  },
+  crystal: {
+    // End crystals: hp 1, no real AI (float + spin), die to ANY hit (melee or
+    // arrow) with a small explosion handled in main.js. While one lives the
+    // dragon regenerates 1 HP/s (mobs.js manages the healing beam).
+    name: 'End Crystal', hp: 1, speed: 0, hostile: false, ai: 'crystal', mesh: 'crystal',
+    xp: 0, flies: true, persist: true,
+    drops: [],
+    spawn: null, // placed atop the obsidian pillars when the fight starts
+  },
 };
 
 export function mobDef(type) {
@@ -260,16 +286,22 @@ export function mobDef(type) {
 
 // Weighted spawn candidates for a dimension/time. `kind` filters the special
 // paths (the wolf pre-roll; later: water mobs); the default (undefined) is the
-// ambient ground list.
+// ambient ground list. def.spawn may be one descriptor or a LIST of them
+// (Phase 9: endermen spawn in both the overworld and the End, with per-dim
+// weights).
 export function spawnCandidates({ dim, time = null, kind = undefined }) {
   const out = [];
   for (const [type, def] of Object.entries(MOB_DEFS)) {
-    const s = def.spawn;
-    if (!s || !(s.weight > 0)) continue;
-    if ((s.kind || undefined) !== kind) continue;
-    if (s.dim !== dim) continue;
-    if (time !== null && s.time !== null && s.time !== time) continue;
-    out.push({ type, weight: s.weight, def });
+    if (!def.spawn) continue;
+    const specs = Array.isArray(def.spawn) ? def.spawn : [def.spawn];
+    for (const s of specs) {
+      if (!s || !(s.weight > 0)) continue;
+      if ((s.kind || undefined) !== kind) continue;
+      if (s.dim !== dim) continue;
+      if (time !== null && s.time !== null && s.time !== time) continue;
+      out.push({ type, weight: s.weight, def });
+      break; // at most one entry per type per list
+    }
   }
   return out;
 }

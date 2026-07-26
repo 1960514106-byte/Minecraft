@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { World } from './world.js';
 import { NetherWorld } from './nether.js';
+import { EndWorld, END_SPAWN } from './end.js';
 import { setWaterTime } from './chunk.js';
 import { Player } from './player.js';
 import { createAtlasTexture } from './textures.js';
@@ -34,9 +35,12 @@ import { ProjectileManager } from './projectiles.js';
 import { MinecartManager } from './minecart.js';
 import { BoatManager } from './boat.js';
 import { FluidSim } from './fluids.js';
-import { rollLoot } from './structures.js';
+import { rollLoot, strongholdCenter, strongholdBaseY } from './structures.js';
 import { PROFESSIONS, unlockedTrades, tradeTierFromUses, MAX_TRADE_TIER, professionForPos } from './trades.js';
-import { tryLightPortal, collapsePortalAt, buildArrivalPortal, findPortalNear } from './portal.js';
+import {
+  tryLightPortal, collapsePortalAt, buildArrivalPortal, findPortalNear,
+  tryActivateEndPortal, collapseEndPortalAt,
+} from './portal.js';
 import { getMode, setMode, isCreative, setOnModeChange } from './gamemode.js';
 import {
   biomeDef, itemDef, isBlockItem, foodValue, blockDrop, attackDamage,
@@ -143,7 +147,32 @@ function ensureNether() {
   return netherWorld;
 }
 
-const SAVE_VERSION = 15;
+// Phase 9: the End, created lazily like the nether. Its save data lives under
+// save.dims.end (edits/redstone/fluids) rather than more top-level fields.
+let endWorld = null;
+let redstoneEnd = null;
+let fluidsEnd = null;
+
+function ensureEnd() {
+  if (!endWorld) {
+    endWorld = new EndWorld(scene, atlas);
+    redstoneEnd = new Redstone(endWorld);
+    redstoneEnd.onIgnite = (x, y, z) => igniteTNT(x, y, z);
+    redstoneEnd.onSound = (name) => feedback.play(name);
+    redstoneEnd.onDispense = (x, y, z, dir) => dispenseFrom(x, y, z, dir);
+    redstoneEnd.onNote = (x, y, z) => playNoteBlock(x, y, z);
+    redstoneEnd.containerSignal = (x, y, z) => containerFillSignal(x, y, z);
+    endWorld.onCellChanged = (x, y, z) => redstoneEnd.onCellChanged(x, y, z);
+    const endSave = save && save.dims && save.dims.end ? save.dims.end : null;
+    if (endSave && endSave.redstone) redstoneEnd.restore(endSave.redstone);
+    fluidsEnd = new FluidSim(endWorld);
+    fluidsEnd.onEffect = fluidEffect;
+    if (endSave && endSave.fluids) fluidsEnd.restore(endSave.fluids);
+  }
+  return endWorld;
+}
+
+const SAVE_VERSION = 16;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
@@ -155,11 +184,21 @@ if (hasSave) setMode(save.mode || 'survival');
 if (hasSave) overworld.setGenVersion(save.genVersion || 1);
 if (hasSave && save.edits) overworld.loadEdits(save.edits);
 if (hasSave && save.netherEdits) ensureNether().loadEdits(save.netherEdits);
+if (hasSave && save.dims && save.dims.end && save.dims.end.edits) {
+  ensureEnd().loadEdits(save.dims.end.edits);
+}
+// Phase 9: the endgame victory flag (persisted; set when the dragon falls).
+let dragonDefeated = !!(hasSave && save.dragonDefeated);
 if (hasSave && save.dimension === 'nether') {
   world = ensureNether();
   redstone = redstoneNether;
   fluids = fluidsNether;
-  dayNight.setNether(true);
+  dayNight.setDimension('nether');
+} else if (hasSave && save.dimension === 'end') {
+  world = ensureEnd();
+  redstone = redstoneEnd;
+  fluids = fluidsEnd;
+  dayNight.setDimension('end');
 }
 if (hasSave && typeof save.time === 'number') dayNight.t = save.time;
 
@@ -173,6 +212,7 @@ if (hasSave && save.parked) {
 // Where the player last stood in each dimension (portal return points).
 let portalCooldown = 0;
 let portalTimer = 0;
+let endPortalTimer = 0;   // separate dwell timer for END_PORTAL blocks
 
 const player = new Player(camera, renderer.domElement, world);
 player.controls.pointerSpeed = settings.sensitivity;
@@ -274,9 +314,9 @@ function dimKey(x, y, z) {
   return world.dim.editKeyPrefix + `${x},${y},${z}`;
 }
 function parseDimKey(key) {
-  const isNether = key.startsWith('N|');
-  const [x, y, z] = (isNether ? key.slice(2) : key).split(',').map(Number);
-  return { isNether, x, y, z };
+  const prefix = key.startsWith('N|') ? 'N|' : key.startsWith('E|') ? 'E|' : '';
+  const [x, y, z] = key.slice(prefix.length).split(',').map(Number);
+  return { prefix, isNether: prefix === 'N|', isEnd: prefix === 'E|', x, y, z };
 }
 
 // ---- Explosions & TNT fuses ---------------------------------------------------
@@ -324,14 +364,33 @@ function handleMobKill(result) {
   dropPos.y += 0.8;
   if (result.drops) for (const d of result.drops) drops.spawn(d.id, d.count, dropPos);
   // XP comes from the mob registry (damageMob attaches it); config.xpFromKill
-  // stays as the fallback for results that predate the registry field.
-  xpManager.spawnOrb(dropPos, result.xp != null ? result.xp : xpFromKill(result.type));
+  // stays as the fallback for results that predate the registry field. Zero-xp
+  // deaths (crystals; the dragon pays through the victory shower) spawn no orb.
+  const xp = result.xp != null ? result.xp : xpFromKill(result.type);
+  if (xp > 0) xpManager.spawnOrb(dropPos, xp);
   achievements.trigger({ type: 'kill', hostile: mobs.isHostile(result.type), mob: result.type });
   if (result.type === 'boss') {
     achievements.trigger({ type: 'boss' });
     feedback.play('bossRoar');
     feedback.explosionBurst(result.position, 4);
     survival._setMessage('The Nether Overlord has fallen!', 5);
+  } else if (result.type === 'crystal') {
+    // End crystal blast: visual boom + 6 damage to anything within 4 blocks.
+    // Blocks are spared (the pillar stays) — documented simplification.
+    feedback.play('explode');
+    feedback.explosionBurst(result.position, 3);
+    const p = player.getObject().position;
+    if (p.distanceTo(result.position) < 4) survival.damage(6, 'Crystal blast', result.position);
+    for (let i = mobs.mobs.length - 1; i >= 0; i--) {
+      const m = mobs.mobs[i];
+      if (m.type === 'crystal') continue; // no chain reactions
+      if (m.mesh.position.distanceTo(result.position) < 4) {
+        const res = mobs.damageMob(m, 6, result.position);
+        if (res && res.killed) handleMobKill(res);
+      }
+    }
+  } else if (result.type === 'ender_dragon') {
+    onDragonDefeated(result.position.clone());
   }
 }
 
@@ -373,16 +432,20 @@ function switchDimension(target) {
   ridingHorse = null;
   player.riding = null;
 
+  // Beacon beams are per-dimension scene objects: drop them all; the periodic
+  // beacon check rebuilds the active dimension's beams within a few seconds.
+  clearBeaconBeams();
+
   world = target;
   player.world = world;
   mobs.world = world;
-  redstone = target === overworld ? redstoneOver : redstoneNether;
-  fluids = target === overworld ? fluidsOver : fluidsNether;
+  redstone = target === overworld ? redstoneOver : target === netherWorld ? redstoneNether : redstoneEnd;
+  fluids = target === overworld ? fluidsOver : target === netherWorld ? fluidsNether : fluidsEnd;
   projectiles.world = world;
   drops = new DropManager(scene, world, atlas, parkedDrops);
   minecarts = new MinecartManager(scene, world, parkedCarts);
   boats = new BoatManager(scene, world, parkedBoats);
-  dayNight.setNether(!!world.skyless);
+  dayNight.setDimension(world.dim.id);
   if (world.skyless) {
     weather.active = false;
     weather.intensity = 0;
@@ -421,6 +484,232 @@ function travelThroughPortal() {
   scheduleSave();
 }
 
+// ---- Phase 9: End travel -------------------------------------------------------
+
+// Step into an activated END_PORTAL in the overworld: arrive on the obsidian
+// spawn platform near the island edge. The first pre-victory entry (per visit)
+// wakes the dragon and re-seeds the eight pillar crystals — leaving mid-fight
+// resets the fight, like the nether boss (documented).
+function travelToEnd() {
+  const target = ensureEnd();
+  switchDimension(target);
+  // Build (or repair) the arrival platform; writes persist as End edits.
+  if (world.getBlock(END_SPAWN.x, END_SPAWN.y, END_SPAWN.z) !== BLOCK.OBSIDIAN) {
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        world.setBlock(END_SPAWN.x + dx, END_SPAWN.y, END_SPAWN.z + dz, BLOCK.OBSIDIAN);
+        for (let dy = 1; dy <= 3; dy++) {
+          world.setBlock(END_SPAWN.x + dx, END_SPAWN.y + dy, END_SPAWN.z + dz, BLOCK.AIR);
+        }
+      }
+    }
+  }
+  player.spawn(END_SPAWN.x + 0.5, END_SPAWN.y + 1 + 1.62 + 0.1, END_SPAWN.z + 0.5);
+  world.update(player.getObject().position);
+  portalCooldown = 4;
+  feedback.play('portal');
+  feedback.warpBurst(player.getObject().position.clone());
+  achievements.trigger({ type: 'end' });
+  survival._setMessage('Entering the End...', 3);
+  if (!dragonDefeated && !mobs.mobs.some((m) => m.type === 'ender_dragon')) {
+    spawnDragonFight();
+  }
+  scheduleSave();
+}
+
+// Seed the boss fight: one crystal atop each obsidian pillar, then the dragon.
+function spawnDragonFight() {
+  for (const spec of endWorld.pillarSpecs()) {
+    mobs.addMob(new THREE.Vector3(spec.x + 0.5, spec.topY + 1, spec.z + 0.5), 'crystal');
+  }
+  mobs.addMob(new THREE.Vector3(0.5, 85, 0.5), 'ender_dragon');
+  feedback.play('bossRoar');
+  survival._setMessage('The Ender Dragon circles above...', 5);
+}
+
+// Step into the exit portal (or any END_PORTAL while in the End): return to
+// the overworld spawn. After victory the credits roll.
+function returnFromEnd() {
+  switchDimension(overworld);
+  const sp = survival.spawnPoint;
+  if (sp) player.spawn(sp.x, sp.y + 0.1, sp.z);
+  else {
+    const s = world.findSpawn(8, 8);
+    player.spawn(s.x + 0.5, s.h + 1 + 1.62 + 0.1, s.z + 0.5);
+  }
+  world.update(player.getObject().position);
+  portalCooldown = 4;
+  feedback.play('portal');
+  feedback.warpBurst(player.getObject().position.clone());
+  survival._setMessage('Returning home...', 3);
+  if (dragonDefeated) showCredits();
+  scheduleSave();
+}
+
+// The dragon fell: XP shower, the persisted victory flag, the exit portal
+// fountain (bedrock + END_PORTAL + the dragon egg trophy) at the island centre.
+function onDragonDefeated(pos) {
+  dragonDefeated = true;
+  achievements.trigger({ type: 'dragon' });
+  feedback.play('bossRoar');
+  feedback.explosionBurst(pos, 5);
+  survival._setMessage('The Ender Dragon has been freed!', 6);
+  // XP shower: 12 orbs x 10 = 120 XP raining around the death point.
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const orbPos = pos.clone().add(new THREE.Vector3(Math.cos(a) * 2, 1 + (i % 3), Math.sin(a) * 2));
+    xpManager.spawnOrb(orbPos, 10);
+  }
+  // Exit portal at the island centre (only exists in the End).
+  if (world.dim.id === 'end') {
+    const cy = world.columnHeight(0, 0) + 1;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        const ring = Math.max(Math.abs(dx), Math.abs(dz)) === 2;
+        // Solid bedrock underlayer: the island surface undulates, so without
+        // it a player could settle one block BELOW the portal sheet.
+        world.setBlock(dx, cy - 1, dz, BLOCK.BEDROCK);
+        world.setBlock(dx, cy, dz, ring ? BLOCK.BEDROCK : BLOCK.END_PORTAL);
+        for (let dy = 1; dy <= 4; dy++) world.setBlock(dx, cy + dy, dz, BLOCK.AIR);
+      }
+    }
+    // Central bedrock column with the dragon egg on top.
+    for (let dy = 0; dy <= 2; dy++) world.setBlock(0, cy + dy, 0, BLOCK.BEDROCK);
+    world.setBlock(0, cy + 3, 0, BLOCK.DRAGON_EGG);
+  }
+  scheduleSave();
+}
+
+// ---- Phase 9: end-game credits ---------------------------------------------------
+const creditsEl = document.getElementById('credits');
+const creditsInnerEl = document.getElementById('creditsInner');
+let creditsOpen = false;
+
+function showCredits() {
+  creditsOpen = true;
+  creditsEl.classList.remove('hidden');
+  // Restart the scroll animation on every showing.
+  creditsInnerEl.style.animation = 'none';
+  void creditsInnerEl.offsetHeight; // reflow
+  creditsInnerEl.style.animation = '';
+  if (player.controls.isLocked) player.controls.unlock();
+  overlay.classList.add('hidden');
+}
+
+function hideCredits() {
+  if (!creditsOpen) return;
+  creditsOpen = false;
+  creditsEl.classList.add('hidden');
+  if (survival.alive) overlay.classList.remove('hidden');
+}
+
+creditsEl.addEventListener('click', hideCredits);
+
+// ---- Phase 9: beacons ------------------------------------------------------------
+// Beacons only exist as player edits, so each world lazily scans its edit maps
+// once (the redstone-torch adoption pattern) and placements/breaks keep the
+// set current. Every BEACON_INTERVAL seconds each beacon re-validates its 3x3
+// mineral base, re-applies its aura to a player within range and keeps its
+// light beam in the scene.
+const BEACON_INTERVAL = 4;
+const BEACON_RANGE = 32;
+let beaconTimer = 1;
+const beaconBeams = new Map(); // "x,y,z" -> beam mesh (active dimension only)
+
+function beaconSetOf(w) {
+  if (!w._beacons) {
+    w._beacons = new Set();
+    for (const [ck, inner] of w.edits) {
+      const [cx, cz] = ck.split(',').map(Number);
+      for (const [lk, v] of inner) {
+        if (decodeEditId(v) !== BLOCK.BEACON) continue;
+        const [lx, y, lz] = lk.split(',').map(Number);
+        w._beacons.add(`${cx * 16 + lx},${y},${cz * 16 + lz}`);
+      }
+    }
+  }
+  return w._beacons;
+}
+
+function registerBeacon(x, y, z) {
+  beaconSetOf(world).add(`${x},${y},${z}`);
+  beaconTimer = Math.min(beaconTimer, 0.5); // validate soon
+}
+
+function unregisterBeacon(x, y, z) {
+  const key = `${x},${y},${z}`;
+  beaconSetOf(world).delete(key);
+  removeBeaconBeam(key);
+}
+
+function removeBeaconBeam(key) {
+  const beam = beaconBeams.get(key);
+  if (!beam) return;
+  scene.remove(beam);
+  beam.geometry.dispose();
+  beam.material.dispose();
+  beaconBeams.delete(key);
+}
+
+function clearBeaconBeams() {
+  for (const key of [...beaconBeams.keys()]) removeBeaconBeam(key);
+}
+
+// Base tier: 0 = invalid, 1 = iron/gold (Speed I), 2 = all diamond/emerald
+// (Speed II + Regeneration I). A mixed precious/plain base counts as tier 1.
+function beaconBaseTier(x, y, z) {
+  let precious = true;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      const id = world.getBlock(x + dx, y - 1, z + dz);
+      if (id !== BLOCK.IRON_BLOCK && id !== BLOCK.GOLD_BLOCK &&
+          id !== BLOCK.DIAMOND_BLOCK && id !== BLOCK.EMERALD_BLOCK) return 0;
+      if (id !== BLOCK.DIAMOND_BLOCK && id !== BLOCK.EMERALD_BLOCK) precious = false;
+    }
+  }
+  return precious ? 2 : 1;
+}
+
+function ensureBeaconBeam(key, x, y, z) {
+  if (beaconBeams.has(key)) return;
+  const h = CHUNK_HEIGHT - (y + 1);
+  const beam = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, h, 0.35),
+    new THREE.MeshBasicMaterial({ color: 0xdffaff, transparent: true, opacity: 0.55, depthWrite: false }),
+  );
+  beam.position.set(x + 0.5, y + 1 + h / 2, z + 0.5);
+  scene.add(beam);
+  beaconBeams.set(key, beam);
+}
+
+function updateBeacons(dt) {
+  beaconTimer -= dt;
+  if (beaconTimer > 0) return;
+  beaconTimer = BEACON_INTERVAL;
+  const set = beaconSetOf(world);
+  if (set.size === 0) return;
+  const p = player.getObject().position;
+  for (const key of [...set]) {
+    const [x, y, z] = key.split(',').map(Number);
+    if (world.getBlock(x, y, z) !== BLOCK.BEACON) {
+      set.delete(key);
+      removeBeaconBeam(key);
+      continue;
+    }
+    const tier = beaconBaseTier(x, y, z);
+    if (!tier) {
+      removeBeaconBeam(key);
+      continue;
+    }
+    ensureBeaconBeam(key, x, y, z);
+    if (p.distanceTo(new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5)) <= BEACON_RANGE) {
+      effects.add('speed', tier, BEACON_INTERVAL * 2);
+      if (tier >= 2) effects.add('regeneration', 1, BEACON_INTERVAL * 2);
+      achievements.trigger({ type: 'beacon' });
+    }
+  }
+}
+
 // One shared explosion used by creepers and TNT: clears blocks in bulk (one
 // mesh rebuild per chunk), rolls a drop chance per block, spills furnace/chest
 // contents, chains nearby TNT with short fuses and damages player and mobs.
@@ -435,6 +724,8 @@ function explodeAt(center, radius) {
         const bx = cx + dx, by = cy + dy, bz = cz + dz;
         const id = world.getBlock(bx, by, bz);
         if (id === BLOCK.AIR || id === BLOCK.WATER || id === BLOCK.BEDROCK) continue;
+        // End portal frames/portals are blast-proof (like bedrock).
+        if (id === BLOCK.END_PORTAL_FRAME || id === BLOCK.END_PORTAL) continue;
         if (id === BLOCK.TNT) {
           igniteTNT(bx, by, bz, 0.25 + Math.random() * 0.5);
           continue;
@@ -659,6 +950,16 @@ function gatherState() {
     player: player.serialize(),
     edits: overworld.serializeEdits(),
     netherEdits: netherWorld ? netherWorld.serializeEdits() : undefined,
+    // Phase 9: the End persists under dims.end. If it was never activated this
+    // session, carry the loaded save's bucket forward untouched.
+    dims: endWorld ? {
+      end: {
+        edits: endWorld.serializeEdits(),
+        redstone: redstoneEnd.serialize(),
+        fluids: fluidsEnd.serialize(),
+      },
+    } : ((hasSave && save.dims) || { end: {} }),
+    dragonDefeated,
     parked: Object.fromEntries(parkedByDim),
     survival: survival.serialize(),
     inventory: inventory.serialize(),
@@ -705,6 +1006,11 @@ window.addEventListener('keydown', async (e) => {
       e.target.blur();
       if (invOpen) closeInventory();
     }
+    return;
+  }
+  // End-game credits swallow every hotkey; Esc (or a click) dismisses them.
+  if (creditsOpen) {
+    if (e.code === 'Escape') hideCredits();
     return;
   }
   if (e.code === 'F4') { e.preventDefault(); toggleGameMode(); return; }
@@ -952,6 +1258,14 @@ function breakBlock(hit, toolId = null) {
     const removed = collapsePortalAt(world, hit.x, hit.y, hit.z);
     if (removed.length) feedback.play('warp');
   }
+  // Breaking an end portal frame (creative only — frames are indestructible in
+  // survival) collapses the portal sheet it bordered.
+  if (id === BLOCK.END_PORTAL_FRAME) {
+    const removed = collapseEndPortalAt(world, hit.x, hit.y, hit.z);
+    if (removed.length) feedback.play('warp');
+  }
+  // Beacons: drop out of the aura/beam registry.
+  if (id === BLOCK.BEACON) unregisterBeacon(hit.x, hit.y, hit.z);
   // Remove the paired half of doors and beds so no floating halves remain.
   if (id === BLOCK.DOOR_BOTTOM || id === BLOCK.DOOR_BOTTOM_OPEN) {
     const above = world.getBlock(hit.x, hit.y + 1, hit.z);
@@ -998,7 +1312,7 @@ function beginMining(hit) {
   // state, so the frame must be broken instead (same as survival).
   let duration;
   if (isCreative()) {
-    if (id === BLOCK.NETHER_PORTAL) return cancelMining();
+    if (id === BLOCK.NETHER_PORTAL || id === BLOCK.END_PORTAL) return cancelMining();
     duration = CREATIVE_BREAK_TIME;
   } else {
     duration = breakDuration(id, toolId, stackEnchant(heldStack, 'efficiency'));
@@ -1067,7 +1381,7 @@ function pickBlockUnderCrosshair() {
   if (!hit) return;
   let id = world.getBlock(hit.x, hit.y, hit.z);
   id = PICK_REMAP[id] !== undefined ? PICK_REMAP[id] : id;
-  if (id === BLOCK.AIR || id === BLOCK.NETHER_PORTAL || !BLOCKS[id]) return;
+  if (id === BLOCK.AIR || id === BLOCK.NETHER_PORTAL || id === BLOCK.END_PORTAL || !BLOCKS[id]) return;
   for (let i = 0; i < HOTBAR_SIZE; i++) {
     const s = inventory.get(i);
     if (s && s.id === id) {
@@ -1303,8 +1617,59 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       return;
     }
 
+    // Dragon egg: right-click teleports it 1-5 blocks to a random air cell
+    // (vanilla-ish). Mine it to claim the trophy.
+    if (hitBlock === BLOCK.DRAGON_EGG) {
+      for (let tries = 0; tries < 12; tries++) {
+        const tx = hit.x + Math.floor(Math.random() * 11) - 5;
+        const ty = Math.max(1, Math.min(CHUNK_HEIGHT - 2, hit.y + Math.floor(Math.random() * 5) - 2));
+        const tz = hit.z + Math.floor(Math.random() * 11) - 5;
+        if ((tx !== hit.x || ty !== hit.y || tz !== hit.z) && world.getBlock(tx, ty, tz) === BLOCK.AIR) {
+          world.setBlock(hit.x, hit.y, hit.z, BLOCK.AIR);
+          world.setBlock(tx, ty, tz, BLOCK.DRAGON_EGG);
+          feedback.play('warp');
+          feedback.warpBurst(new THREE.Vector3(tx + 0.5, ty + 0.5, tz + 0.5));
+          scheduleSave();
+          break;
+        }
+      }
+      return;
+    }
+
     // Bow: start drawing (the arrow is released on mouseup).
     const held = inventory.get(selected);
+
+    // Eye of ender: insert into an empty portal frame, or (aimed anywhere
+    // else) launch a tracer that flies toward the stronghold for ~3 s.
+    if (held && held.id === ITEM.EYE_OF_ENDER) {
+      if (hit && hitBlock === BLOCK.END_PORTAL_FRAME) {
+        const meta = world.getMeta(hit.x, hit.y, hit.z);
+        if ((meta & 1) === 0) {
+          world.setBlock(hit.x, hit.y, hit.z, BLOCK.END_PORTAL_FRAME, meta | 1);
+          if (!isCreative()) inventory.removeOneAt(selected);
+          triggerSwing();
+          feedback.play('place');
+          const filled = tryActivateEndPortal(world, hit.x, hit.y, hit.z);
+          if (filled) {
+            feedback.play('portal');
+            feedback.warpBurst(new THREE.Vector3(filled[4].x + 0.5, filled[4].y + 1, filled[4].z + 0.5));
+            survival._setMessage('The end portal awakens...', 4);
+          }
+          refreshHotbar();
+          scheduleSave();
+        }
+        return;
+      }
+      const sc = strongholdCenter();
+      camera.getWorldPosition(_origin);
+      projectiles.shootEye(_origin.clone().add(new THREE.Vector3(0, 0.2, 0)), sc);
+      if (!isCreative()) inventory.removeOneAt(selected);
+      triggerSwing();
+      feedback.play('warp');
+      refreshHotbar();
+      scheduleSave();
+      return;
+    }
 
     // Flint and steel: ignite TNT, or light a nether portal frame.
     if (held && held.id === ITEM.FLINT_AND_STEEL && hit) {
@@ -1685,6 +2050,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         hoppers.getOrCreate(dimKey(px, py, pz), hd).dir = hd;
       }
       redstone.onBlockPlaced(px, py, pz, blockId, placeOpts);
+      if (blockId === BLOCK.BEACON) registerBeacon(px, py, pz);
       refreshHotbar();
       scheduleSave();
     }
@@ -2254,7 +2620,7 @@ const CREATIVE_EXCLUDED = new Set([
   BLOCK.AIR, BLOCK.FURNACE_LIT, BLOCK.DOOR_TOP, BLOCK.DOOR_TOP_OPEN,
   BLOCK.DOOR_BOTTOM_OPEN, BLOCK.BED_HEAD, BLOCK.PISTON_HEAD, BLOCK.REPEATER_ON,
   BLOCK.POWERED_RAIL_ON, BLOCK.REDSTONE_LAMP_ON, BLOCK.NETHER_PORTAL,
-  BLOCK.REDSTONE_TORCH_OFF,
+  BLOCK.REDSTONE_TORCH_OFF, BLOCK.END_PORTAL,
   BLOCK.WHEAT_1, BLOCK.WHEAT_2, BLOCK.WHEAT_3, BLOCK.CARROT_1, BLOCK.CARROT_2,
   BLOCK.NETHER_WART_1, BLOCK.NETHER_WART_2,
 ]);
@@ -2417,6 +2783,32 @@ if (new URLSearchParams(location.search).has('debug')) {
     closeTrade: () => closeTradeScreen(),
     get tradeOpen() { return tradeOpen; },
     get tradingVillager() { return tradingVillager; },
+    // ---- Phase 9: the End handles ------------------------------------------------
+    strongholdCenter,
+    strongholdBaseY: () => strongholdBaseY(overworld),
+    ensureEnd: () => ensureEnd(),
+    travelToEnd: () => travelToEnd(),
+    returnFromEnd: () => returnFromEnd(),
+    tryActivateEndPortal: (x, y, z) => tryActivateEndPortal(world, x, y, z),
+    get dragonDefeated() { return dragonDefeated; },
+    set dragonDefeated(v) { dragonDefeated = !!v; },
+    get dimensionId() { return world.dim.id; },
+    get endWorld() { return endWorld; },
+    spawnDragonFight: () => spawnDragonFight(),
+    damageMob: (m, amount) => {
+      const r = mobs.damageMob(m, amount, player.getObject().position);
+      if (r && r.killed) handleMobKill(r);
+      return r;
+    },
+    get creditsOpen() { return creditsOpen; },
+    hideCredits: () => hideCredits(),
+    updateBeaconsNow: () => { beaconTimer = 0; updateBeacons(0); },
+    get beaconBeams() { return beaconBeams; },
+    registerBeacon: (x, y, z) => registerBeacon(x, y, z),
+    gatherState: () => gatherState(),
+    save: () => doSave(),
+    get portalCooldown() { return portalCooldown; },
+    get endPortalTimer() { return endPortalTimer; },
   };
 }
 
@@ -2681,9 +3073,9 @@ function closeFurnace() {
 }
 
 function syncFurnaceBlock(key, burning) {
-  // Furnace keys may belong to either dimension ("N|x,y,z" = nether).
-  const { isNether, x: fx, y: fy, z: fz } = parseDimKey(key);
-  const w = isNether ? netherWorld : overworld;
+  // Furnace keys may belong to any dimension ("N|" = nether, "E|" = the End).
+  const { isNether, isEnd, x: fx, y: fy, z: fz } = parseDimKey(key);
+  const w = isNether ? netherWorld : isEnd ? endWorld : overworld;
   if (!w) return;
   const cur = w.getBlock(fx, fy, fz);
   if (burning && cur === BLOCK.FURNACE) w.setBlock(fx, fy, fz, BLOCK.FURNACE_LIT);
@@ -2961,8 +3353,9 @@ function tickHoppers() {
   const prefix = world.dim.editKeyPrefix;
   let changed = false;
   for (const [key, h] of hoppers.hoppers) {
-    if ((key.startsWith('N|') ? 'N|' : '') !== prefix) continue; // inactive dim
-    const { x, y, z } = parseDimKey(key);
+    const parsed = parseDimKey(key);
+    if (parsed.prefix !== prefix) continue; // inactive dimension
+    const { x, y, z } = parsed;
     if (world.getBlock(x, y, z) !== BLOCK.HOPPER) continue; // stale entry
     if (redstone.isPowered(x, y, z)) continue;              // powered = locked
 
@@ -4000,10 +4393,19 @@ function animate() {
       scheduleSave();
     } else if (ev.type === 'fireBurst') {
       feedback.placeBurst(BLOCK.LAVA, ev.pos);
+    } else if (ev.type === 'eyeExpired') {
+      // A flown eye of ender drops back as an item 80% of the time; the other
+      // 20% it shatters in a puff.
+      if (Math.random() < 0.8) drops.spawn(ITEM.EYE_OF_ENDER, 1, ev.pos);
+      else { feedback.smokePuff(ev.pos); feedback.play('break'); }
     } else if (ev.type === 'stuckExpired' && ev.fromPlayer && Math.random() < 0.5) {
       // Half of the player's landed arrows can be picked back up.
       drops.spawn(ITEM.ARROW, 1, ev.pos);
     }
+  }
+  // Sparkle trail behind any flying eyes of ender (cheap: reuse warp particles).
+  for (const a of projectiles.arrows) {
+    if (a.kind === 'eye' && Math.random() < dt * 6) feedback.warpBurst(a.mesh.position.clone());
   }
 
   updateHand(dt);
@@ -4120,7 +4522,28 @@ function animate() {
     } else {
       portalTimer = 0;
     }
+    // End portals (Phase 9): a shorter dwell, its own timer. In the overworld
+    // the stronghold portal leads out; in the End the exit portal leads home.
+    if (feetBlock === BLOCK.END_PORTAL && portalCooldown <= 0 && !ridingCart && !ridingBoat && !ridingHorse) {
+      endPortalTimer += dt;
+      if (Math.random() < dt * 5) feedback.warpBurst(p.clone().add(new THREE.Vector3(0, -1, 0)));
+      if (endPortalTimer >= 0.8) {
+        endPortalTimer = 0;
+        if (world.dim.id === 'end') returnFromEnd();
+        else travelToEnd();
+      }
+    } else {
+      endPortalTimer = 0;
+    }
   }
+
+  // The End's void is lethal: fall below the island and die (survival).
+  if (world.dim.id === 'end' && survival.alive && p.y < -2) {
+    survival.damage(1000, 'The void');
+  }
+
+  // Beacons: periodic base validation + aura + beam upkeep.
+  updateBeacons(dt);
 
   world.update(player.getObject().position);
   dayNight.update(dt, player.getObject().position);
@@ -4306,11 +4729,15 @@ function animate() {
   underwaterEl.classList.toggle('active', player.underwater && !inLava);
   updateSurvivalHud();
 
-  // Boss health bar + lava tint.
+  // Boss health bar + lava tint (shared by the Overlord and the Ender Dragon).
   {
     const boss = mobs.getBoss();
     bossBarEl.classList.toggle('active', !!boss);
-    if (boss) bossBarFillEl.style.transform = `scaleX(${Math.max(0, boss.health / boss.maxHealth)})`;
+    if (boss) {
+      bossBarFillEl.style.transform = `scaleX(${Math.max(0, boss.health / boss.maxHealth)})`;
+      const label = bossBarEl.querySelector('.label');
+      if (label) label.textContent = boss.type === 'ender_dragon' ? 'ENDER DRAGON' : 'NETHER OVERLORD';
+    }
   }
 
   if (saveToast > 0) saveToast -= dt;

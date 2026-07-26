@@ -15,7 +15,7 @@
 // =============================================================================
 
 import {
-  CHUNK_SIZE, CHUNK_HEIGHT, SEA_LEVEL, BLOCK, ITEM, BIOME,
+  CHUNK_SIZE, CHUNK_HEIGHT, SEA_LEVEL, BLOCK, ITEM, BIOME, WORLD_SEED,
 } from './config.js';
 
 const VILLAGE_CELL = 8;   // village grid, in chunks
@@ -68,6 +68,18 @@ const LOOT_TABLES = {
     { id: ITEM.BREAD, min: 1, max: 2, chance: 0.4 },
     { id: ITEM.REDSTONE, min: 1, max: 4, chance: 0.3 },
   ],
+  // Phase 9: the stronghold library/storage chests (no books item exists —
+  // lapis stands in as the scholarly loot, documented).
+  stronghold: [
+    { id: ITEM.ENDER_PEARL, min: 1, max: 2, chance: 0.5 },
+    { id: ITEM.EMERALD, min: 1, max: 3, chance: 0.5 },
+    { id: ITEM.IRON_INGOT, min: 1, max: 4, chance: 0.7 },
+    { id: ITEM.LAPIS, min: 2, max: 5, chance: 0.5 },
+    { id: ITEM.BREAD, min: 1, max: 3, chance: 0.6 },
+    { id: ITEM.APPLE, min: 1, max: 2, chance: 0.4 },
+    { id: ITEM.REDSTONE, min: 2, max: 5, chance: 0.3 },
+    { id: ITEM.DIAMOND, min: 1, max: 2, chance: 0.12 },
+  ],
   fortress: [
     { id: ITEM.GOLD_INGOT, min: 2, max: 4, chance: 0.7 },
     { id: BLOCK.NETHER_BRICK, min: 2, max: 6, chance: 0.6 },
@@ -106,18 +118,21 @@ export function decorateStructures(world, chunk) {
   generateVillagePart(world, chunk);
   generateDungeon(world, chunk);
   generateMineshaftPart(world, chunk);
+  generateStrongholdPart(world, chunk); // last, so it wins inside its bounds
 }
 
-// Write a voxel in world coords IF it falls inside this chunk.
+// Write a voxel in world coords IF it falls inside this chunk. `meta` writes
+// per-voxel metadata (Phase 9: pre-eyed end portal frames).
 function makePut(chunk) {
   const ox = chunk.cx * CHUNK_SIZE;
   const oz = chunk.cz * CHUNK_SIZE;
-  return (wx, wy, wz, id, airOnly = false) => {
+  return (wx, wy, wz, id, airOnly = false, meta = 0) => {
     const lx = wx - ox, lz = wz - oz;
     if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return;
     if (wy < 1 || wy >= CHUNK_HEIGHT) return;
     if (airOnly && chunk.getBlockLocal(lx, wy, lz) !== BLOCK.AIR) return;
     chunk.setBlockLocal(lx, wy, lz, id);
+    if (meta) chunk.setMetaLocal(lx, wy, lz, meta);
   };
 }
 
@@ -542,4 +557,149 @@ function generateFortressPart(world, chunk) {
       }
     }
   }
+}
+
+// =============================================================================
+// Phase 9: the stronghold — ONE per world, seed-deterministic, buried at
+// y ~10-24. A stone-brick complex: portal room (12-frame end portal ring over
+// a support platform, silverfish spawner, lava basin), three corridors and a
+// bookshelf-lined library with the loot chest.
+// =============================================================================
+
+// Deterministic 0..1 hash of the WORLD SEED alone (no world needed), so the
+// Node smoke suite can assert the stronghold position headlessly.
+function seedHash01(salt) {
+  let h = (Math.imul(WORLD_SEED, 1442695041) ^ Math.imul(salt, 2246822519)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+// The stronghold centre (the portal room's middle column), 600-1100 blocks
+// from the origin at a seed-hashed angle. Pure function of WORLD_SEED.
+export function strongholdCenter() {
+  const ang = seedHash01(9001) * Math.PI * 2;
+  const dist = 600 + seedHash01(9002) * 500;
+  return { x: Math.round(Math.cos(ang) * dist), z: Math.round(Math.sin(ang) * dist) };
+}
+
+// Base (floor-interior) height: buried under the local surface, clamped so the
+// complex always fits above bedrock. Deterministic per world (columnHeight is).
+export function strongholdBaseY(world) {
+  const { x, z } = strongholdCenter();
+  return Math.max(8, Math.min(20, world.columnHeight(x, z) - 10));
+}
+
+// The 12 frame positions bordering the empty 3x3 portal interior, in ring
+// order. Indices 1/5/9 generate with their eye already inserted (meta bit0).
+export const END_FRAME_RING = [
+  [-1, -2], [0, -2], [1, -2],
+  [2, -1], [2, 0], [2, 1],
+  [1, 2], [0, 2], [-1, 2],
+  [-2, 1], [-2, 0], [-2, -1],
+];
+const PRE_EYED = new Set([1, 5, 9]);
+
+function generateStrongholdPart(world, chunk) {
+  const { x: sx, z: sz } = strongholdCenter();
+  const ox = chunk.cx * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
+  // Bounding box: portal room ±6, corridors to ±26, library to z -34.
+  if (ox + CHUNK_SIZE <= sx - 30 || ox > sx + 26 || oz + CHUNK_SIZE <= sz - 36 || oz > sz + 8) return;
+
+  const put = makePut(chunk);
+  const SY = strongholdBaseY(world); // interior floor level (players stand at SY)
+  const brick = (x, y, z) => (world.hash01_3(x, y, z, 3001) < 0.18 ? BLOCK.MOSSY_STONE : BLOCK.STONE_BRICK);
+
+  // Hollow stone-brick room: interior air spans [x0+1..x1-1] x [y0+1..y1-1].
+  const room = (x0, y0, z0, x1, y1, z1) => {
+    for (let x = x0; x <= x1; x++) {
+      for (let z = z0; z <= z1; z++) {
+        for (let y = y0; y <= y1; y++) {
+          const shell = x === x0 || x === x1 || z === z0 || z === z1 || y === y0 || y === y1;
+          put(x, y, z, shell ? brick(x, y, z) : BLOCK.AIR);
+        }
+      }
+    }
+  };
+
+  // ---- Portal room: 13x13, interior height 5 --------------------------------------
+  room(sx - 6, SY - 1, sz - 6, sx + 6, SY + 5, sz + 6);
+  // Raised 5x5 support platform under the ring (top at SY+1).
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) put(sx + dx, SY, sz + dz, BLOCK.STONE_BRICK);
+  }
+  // The 12-frame ring at SY+1; three frames generate pre-eyed (meta bit0).
+  for (let i = 0; i < END_FRAME_RING.length; i++) {
+    const [dx, dz] = END_FRAME_RING[i];
+    put(sx + dx, SY + 1, sz + dz, BLOCK.END_PORTAL_FRAME, false, PRE_EYED.has(i) ? 1 : 0);
+  }
+  // Lava basin sunken into the floor beside the platform.
+  for (let dz = -1; dz <= 1; dz++) {
+    put(sx - 5, SY - 1, sz + dz, BLOCK.LAVA);
+    put(sx - 4, SY - 1, sz + dz, BLOCK.LAVA);
+  }
+  // Silverfish spawner guarding the approach (the door is on +Z).
+  put(sx, SY, sz + 4, BLOCK.MOB_SPAWNER);
+  world.structureSpawners.set(`${sx},${SY},${sz + 4}`, 'silverfish');
+  // Torches so the room reads on arrival.
+  put(sx - 5, SY, sz + 5, BLOCK.TORCH);
+  put(sx + 5, SY, sz + 5, BLOCK.TORCH);
+
+  // ---- Corridors (3 wide, interior height 3) ---------------------------------------
+  // A: north (-Z) from the portal room to the library.
+  for (let z = sz - 25; z <= sz - 6; z++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let y = SY - 1; y <= SY + 3; y++) {
+        const shell = Math.abs(dx) === 2 || y === SY - 1 || y === SY + 3;
+        put(sx + dx, y, z, shell ? brick(sx + dx, y, z) : BLOCK.AIR);
+      }
+    }
+  }
+  // Doorway through the portal room's north wall.
+  for (let y = SY; y <= SY + 1; y++) for (let dx = -1; dx <= 1; dx++) put(sx + dx, y, sz - 6, BLOCK.AIR);
+  // B: east (+X), dead-ends at a storage alcove with a second chest.
+  for (let x = sx + 6; x <= sx + 20; x++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let y = SY - 1; y <= SY + 3; y++) {
+        const shell = Math.abs(dz) === 2 || y === SY - 1 || y === SY + 3 || x === sx + 20;
+        put(x, y, sz + dz, shell ? brick(x, y, sz + dz) : BLOCK.AIR);
+      }
+    }
+  }
+  for (let y = SY; y <= SY + 1; y++) for (let dz = -1; dz <= 1; dz++) put(sx + 6, y, sz + dz, BLOCK.AIR);
+  put(sx + 19, SY, sz, BLOCK.CHEST);
+  world.structureLoot.set(`${sx + 19},${SY},${sz}`, 'stronghold');
+  // C: west (-X), a short collapsed gallery (flavour).
+  for (let x = sx - 16; x <= sx - 6; x++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let y = SY - 1; y <= SY + 3; y++) {
+        const shell = Math.abs(dz) === 2 || y === SY - 1 || y === SY + 3 || x === sx - 16;
+        put(x, y, sz + dz, shell ? brick(x, y, sz + dz) : BLOCK.AIR);
+      }
+    }
+  }
+  for (let y = SY; y <= SY + 1; y++) for (let dz = -1; dz <= 1; dz++) put(sx - 6, y, sz + dz, BLOCK.AIR);
+  // Rubble in the collapsed end.
+  put(sx - 15, SY, sz - 1, BLOCK.GRAVEL);
+  put(sx - 15, SY, sz, BLOCK.GRAVEL);
+  put(sx - 14, SY, sz + 1, BLOCK.COBBLESTONE);
+
+  // ---- Library: 11x9 room at the end of corridor A ----------------------------------
+  const lz = sz - 29; // library centre
+  room(sx - 5, SY - 1, lz - 4, sx + 5, SY + 4, lz + 4);
+  // Doorway from corridor A through the library's south wall.
+  for (let y = SY; y <= SY + 1; y++) for (let dx = -1; dx <= 1; dx++) put(sx + dx, y, lz + 4, BLOCK.AIR);
+  // Bookshelf stacks along the east/west walls.
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let y = SY; y <= SY + 2; y++) {
+      put(sx - 4, y, lz + dz, BLOCK.BOOKSHELF);
+      put(sx + 4, y, lz + dz, BLOCK.BOOKSHELF);
+    }
+  }
+  // A reading table (fence + plank) and the main loot chest.
+  put(sx, SY, lz, BLOCK.FENCE);
+  put(sx, SY + 1, lz, BLOCK.PLANK);
+  put(sx - 2, SY, lz - 3, BLOCK.CHEST);
+  world.structureLoot.set(`${sx - 2},${SY},${lz - 3}`, 'stronghold');
+  put(sx + 2, SY, lz - 3, BLOCK.TORCH);
 }

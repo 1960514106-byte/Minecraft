@@ -2398,6 +2398,124 @@ export function createAtlasTexture() {
     for (let i = 3; i <= 12; i += 3) setpx(ox + i, oy + i, 168, 250, 196);
   }
 
+  // ---- Phase 9: END_STONE (252) : pale yellow-green with darker blotches ----------
+  {
+    const { ox, oy } = speckle(TILES.END_STONE, [221, 223, 165], 10);
+    for (let i = 0; i < 26; i++) {
+      const x = Math.floor(rng() * (TILE_PX - 2)) + 1;
+      const y = Math.floor(rng() * (TILE_PX - 2)) + 1;
+      setpx(ox + x, oy + y, 200, 202, 138);
+      if (rng() > 0.5) setpx(ox + x + 1, oy + y, 205, 207, 144);
+      if (rng() > 0.5) setpx(ox + x, oy + y + 1, 195, 198, 132);
+    }
+  }
+
+  // ---- END_PORTAL_FRAME_TOP (253) : end stone rim around a dark green window -------
+  {
+    const { ox, oy } = speckle(TILES.END_PORTAL_FRAME_TOP, [205, 210, 152], 10);
+    for (let y = 4; y <= 11; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const n = (rng() * 2 - 1) * 10;
+        setpx(ox + x, oy + y, 22 + n, 60 + n, 48 + n);
+      }
+    }
+  }
+
+  // ---- END_PORTAL_FRAME_SIDE (254) : end stone over a dark base course --------------
+  {
+    const { ox, oy } = speckle(TILES.END_PORTAL_FRAME_SIDE, [196, 200, 146], 10);
+    for (let y = 10; y < TILE_PX; y++) {
+      for (let x = 0; x < TILE_PX; x++) {
+        const n = (rng() * 2 - 1) * 8;
+        setpx(ox + x, oy + y, 60 + n, 66 + n, 52 + n);
+      }
+    }
+    // small dark green gem studs along the middle
+    for (const x of [3, 8, 13]) {
+      setpx(ox + x, oy + 6, 30, 90, 70);
+      setpx(ox + x, oy + 7, 22, 70, 55);
+    }
+  }
+
+  // ---- END_PORTAL (255) : near-black starfield ----------------------------------------
+  {
+    const { ox, oy } = speckle(TILES.END_PORTAL, [10, 8, 22], 6);
+    for (let i = 0; i < 22; i++) {
+      const x = Math.floor(rng() * TILE_PX);
+      const y = Math.floor(rng() * TILE_PX);
+      const c = rng();
+      if (c < 0.4) setpx(ox + x, oy + y, 190, 240, 220);        // pale green stars
+      else if (c < 0.7) setpx(ox + x, oy + y, 130, 110, 220);   // violet stars
+      else setpx(ox + x, oy + y, 230, 230, 250);                // white stars
+    }
+  }
+
+  // ---- END_PORTAL_EYE (256) : the inserted eye stud (green iris on dark shell) ------
+  {
+    const { ox, oy } = speckle(TILES.END_PORTAL_EYE, [24, 30, 34], 8);
+    for (let y = 4; y <= 11; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const d = Math.abs(x - 7.5) + Math.abs(y - 7.5);
+        if (d < 6) {
+          const n = (rng() * 2 - 1) * 14;
+          setpx(ox + x, oy + y, 60 + n, 190 + n, 130 + n);
+        }
+      }
+    }
+    for (let y = 6; y <= 9; y++) for (let x = 6; x <= 9; x++) setpx(ox + x, oy + y, 20, 60, 44);
+  }
+
+  // ---- DRAGON_EGG (257) : dark purple speckled egg block --------------------------------
+  {
+    const { ox, oy } = speckle(TILES.DRAGON_EGG, [18, 10, 24], 8);
+    for (let i = 0; i < 20; i++) {
+      const x = Math.floor(rng() * TILE_PX);
+      const y = Math.floor(rng() * TILE_PX);
+      setpx(ox + x, oy + y, 90 + rng() * 40, 30 + rng() * 20, 130 + rng() * 40);
+    }
+  }
+
+  // ---- BEACON (258) : glass shell around a glowing white-cyan core ----------------------
+  {
+    const { ox, oy } = speckle(TILES.BEACON, [40, 60, 70], 8);
+    // glass frame
+    for (let i = 0; i < TILE_PX; i++) {
+      setpx(ox + i, oy, 170, 220, 230); setpx(ox + i, oy + 15, 170, 220, 230);
+      setpx(ox, oy + i, 170, 220, 230); setpx(ox + 15, oy + i, 170, 220, 230);
+    }
+    // dark obsidian base band
+    for (let y = 12; y <= 14; y++) for (let x = 1; x <= 14; x++) setpx(ox + x, oy + y, 24, 18, 38);
+    // glowing core
+    for (let y = 3; y <= 10; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const n = (rng() * 2 - 1) * 12;
+        setpx(ox + x, oy + y, 210 + n, 245, 250);
+      }
+    }
+  }
+
+  // ---- EYE_OF_ENDER item (259) : ender pearl with a green iris --------------------------
+  {
+    const { ox, oy } = toolTile(TILES.EYE_OF_ENDER);
+    for (let y = 3; y <= 12; y++) {
+      for (let x = 3; x <= 12; x++) {
+        const d = Math.hypot(x - 7.5, y - 7.5);
+        if (d < 4.8) {
+          const n = (rng() * 2 - 1) * 14;
+          setpx(ox + x, oy + y, 34 + n, 60 + n, 52 + n);
+        }
+      }
+    }
+    for (let y = 5; y <= 10; y++) {
+      for (let x = 5; x <= 10; x++) {
+        const d = Math.hypot(x - 7.5, y - 7.5);
+        if (d < 2.6) setpx(ox + x, oy + y, 90, 220, 150);
+      }
+    }
+    setpx(ox + 7, oy + 7, 230, 255, 240);
+    setpx(ox + 8, oy + 8, 20, 40, 30);
+  }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

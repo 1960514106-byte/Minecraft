@@ -44,6 +44,22 @@ function getFireballMesh() {
   return group;
 }
 
+let eyeMat = null;
+let eyeIrisMat = null;
+
+function getEyeMesh() {
+  if (!eyeMat) {
+    eyeMat = new THREE.MeshLambertMaterial({ color: 0x1e4a3a, emissive: 0x0a2418 });
+    eyeIrisMat = new THREE.MeshLambertMaterial({ color: 0x66e8a0, emissive: 0x2a8a50 });
+  }
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), eyeMat));
+  const iris = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), eyeIrisMat);
+  iris.position.y = 0.1;
+  group.add(iris);
+  return group;
+}
+
 function getFlaskMesh() {
   if (!flaskMat) {
     flaskMat = new THREE.MeshLambertMaterial({ color: 0x9a40c8, emissive: 0x3a1050 });
@@ -116,6 +132,28 @@ export class ProjectileManager {
     });
   }
 
+  // Phase 9: a thrown eye of ender. Ghostly — ignores all collision — it
+  // climbs while drifting toward `target` (the stronghold) for ~3 s, then
+  // fires an 'eyeExpired' event (main.js drops the item back 80% of the time).
+  shootEye(origin, target) {
+    const mesh = getEyeMesh();
+    mesh.position.copy(origin);
+    this.scene.add(mesh);
+    const dir = new THREE.Vector3(target.x - origin.x, 0, target.z - origin.z);
+    if (dir.lengthSq() > 0.001) dir.normalize();
+    const velocity = dir.multiplyScalar(9);
+    velocity.y = 6;
+    this.arrows.push({
+      mesh,
+      velocity,
+      damage: 0,
+      fromPlayer: true,
+      stuck: false,
+      life: 0,
+      kind: 'eye',
+    });
+  }
+
   _remove(i) {
     this.scene.remove(this.arrows[i].mesh);
     this.arrows.splice(i, 1);
@@ -141,6 +179,19 @@ export class ProjectileManager {
 
       if (a.life > MAX_LIFETIME) {
         this._remove(i);
+        continue;
+      }
+
+      // Eye of ender: ghostly (no gravity, no collision) — it climbs while
+      // drifting toward the stronghold, then expires after ~3 s.
+      if (a.kind === 'eye') {
+        a.velocity.y *= Math.max(0, 1 - dt * 1.4);
+        a.mesh.position.addScaledVector(a.velocity, dt);
+        a.mesh.rotation.y += dt * 4;
+        if (a.life >= 3) {
+          events.push({ type: 'eyeExpired', pos: a.mesh.position.clone() });
+          this._remove(i);
+        }
         continue;
       }
 

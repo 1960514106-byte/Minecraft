@@ -7,7 +7,7 @@
 // =============================================================================
 
 import * as THREE from 'three';
-import { BLOCK, ITEM, SEA_LEVEL, BIOME, NETHER_HEIGHT, isSolid } from './config.js';
+import { BLOCK, ITEM, SEA_LEVEL, BIOME, NETHER_HEIGHT, CHUNK_HEIGHT, isSolid } from './config.js';
 import {
   MOB_DEFS, AI_NAMES, mobDef, spawnCandidates, weightedPick, rollMobDrops,
   xpForMob, breedFoodOf,
@@ -126,7 +126,15 @@ export class MobManager {
       horseBody: new THREE.MeshLambertMaterial({ color: 0x8a5a2e }),
       horseDark: new THREE.MeshLambertMaterial({ color: 0x5e3c1c }),
       saddle: new THREE.MeshLambertMaterial({ color: 0x703820 }),
+      // Phase 9: the End
+      dragonBody: new THREE.MeshLambertMaterial({ color: 0x18101e }),
+      dragonWing: new THREE.MeshLambertMaterial({ color: 0x241a2e, side: THREE.DoubleSide }),
+      dragonEye: new THREE.MeshLambertMaterial({ color: 0xd06ae8, emissive: 0x8822aa }),
+      crystalBase: new THREE.MeshLambertMaterial({ color: 0x3a3a40 }),
+      crystalCore: new THREE.MeshLambertMaterial({ color: 0xe89ae0, emissive: 0x8a2a80 }),
     };
+    // One shared material for dragon-to-crystal healing beams.
+    this.beamMaterial = new THREE.LineBasicMaterial({ color: 0xff9ae8, transparent: true, opacity: 0.85 });
 
     // AI dispatch table: MOB_DEFS[type].ai -> handler. Handlers for hostile
     // types receive (m, ctx) from the shared _hostileAI prelude and return
@@ -149,6 +157,8 @@ export class MobManager {
       silverfish: (m, ctx) => this._aiSilverfish(m, ctx),
       golem: (m, ctx) => { this._aiGolem(m, ctx.dt); return false; },
       squid: (m, ctx) => { this._aiSquid(m, ctx.dt); return false; },
+      dragon: (m, ctx) => { this._dragonAI(m, ctx.dt, ctx.player, ctx.survival, ctx.playerPos); return false; },
+      crystal: (m, ctx) => { this._crystalAI(m, ctx.dt); return false; },
     };
     for (const name of AI_NAMES) {
       if (!this.aiHandlers[name]) console.error(`[mobs] missing AI handler for '${name}'`);
@@ -184,6 +194,8 @@ export class MobManager {
       silverfish: () => this.makeSilverfishMesh(),
       squid: () => this.makeSquidMesh(),
       horse: () => this.makeHorseMesh(),
+      dragon: () => this.makeDragonMesh(),
+      crystal: () => this.makeCrystalMesh(),
     };
 
     // Static weighted spawn lists derived from the registry.
@@ -191,6 +203,7 @@ export class MobManager {
       overworldNight: spawnCandidates({ dim: 'overworld', time: 'night' }),
       overworldDay: spawnCandidates({ dim: 'overworld', time: 'day' }),
       nether: spawnCandidates({ dim: 'nether' }),
+      end: spawnCandidates({ dim: 'end' }),
     };
 
     if (Array.isArray(state)) {
@@ -630,6 +643,39 @@ export class MobManager {
     return g;
   }
 
+  // Phase 9: the Ender Dragon — a large dark box-build (body, neck, head, two
+  // wide flat wings, tapering tail). Wing tips span ~8 blocks.
+  makeDragonMesh() {
+    const g = new THREE.Group();
+    const part = this._partHelper(g);
+    part(new THREE.BoxGeometry(1.4, 1.2, 3.4), this.materials.dragonBody, 0, 1.2, 0);      // body
+    part(new THREE.BoxGeometry(0.7, 0.7, 1.4), this.materials.dragonBody, 0, 1.7, 2.2);    // neck
+    part(new THREE.BoxGeometry(0.9, 0.7, 1.1), this.materials.dragonBody, 0, 2.0, 3.2);    // head
+    part(new THREE.BoxGeometry(0.5, 0.25, 0.7), this.materials.dragonBody, 0, 1.72, 3.6);  // jaw
+    part(new THREE.BoxGeometry(0.16, 0.16, 0.1), this.materials.dragonEye, -0.28, 2.15, 3.7); // eyes
+    part(new THREE.BoxGeometry(0.16, 0.16, 0.1), this.materials.dragonEye, 0.28, 2.15, 3.7);
+    part(new THREE.BoxGeometry(4.0, 0.14, 1.6), this.materials.dragonWing, -2.6, 1.75, -0.2); // wings
+    part(new THREE.BoxGeometry(4.0, 0.14, 1.6), this.materials.dragonWing, 2.6, 1.75, -0.2);
+    part(new THREE.BoxGeometry(0.7, 0.6, 1.6), this.materials.dragonBody, 0, 1.15, -2.3);  // tail 1
+    part(new THREE.BoxGeometry(0.5, 0.45, 1.5), this.materials.dragonBody, 0, 1.1, -3.7);  // tail 2
+    part(new THREE.BoxGeometry(0.32, 0.3, 1.4), this.materials.dragonBody, 0, 1.05, -5.0); // tail 3
+    return g;
+  }
+
+  // End crystal: a bedrock-toned base slab carrying a spinning pink cube.
+  makeCrystalMesh() {
+    const g = new THREE.Group();
+    const part = this._partHelper(g);
+    part(new THREE.BoxGeometry(0.95, 0.3, 0.95), this.materials.crystalBase, 0, 0.15, 0);
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), this.materials.crystalCore);
+    core.userData.baseMaterial = this.materials.crystalCore;
+    core.position.set(0, 1.05, 0);
+    core.rotation.set(Math.PI / 5, Math.PI / 4, 0);
+    g.add(core);
+    g.userData.core = core;
+    return g;
+  }
+
   addMob(pos, type = 'zombie', health, extra = {}) {
     const def = mobDef(type);
     // Phase 8: villagers roll a deterministic profession from their spawn
@@ -697,6 +743,11 @@ export class MobManager {
 
   removeAt(i) {
     const m = this.mobs[i];
+    if (m.beamLine) { // dragon healing beam (Phase 9)
+      this.scene.remove(m.beamLine);
+      m.beamLine.geometry.dispose();
+      m.beamLine = null;
+    }
     this.scene.remove(m.mesh);
     this.mobs.splice(i, 1);
   }
@@ -705,8 +756,9 @@ export class MobManager {
     return !!mobDef(type).hostile;
   }
 
+  // The current boss-bar mob: the Nether Overlord or the Ender Dragon.
   getBoss() {
-    for (const m of this.mobs) if (m.boss) return m;
+    for (const m of this.mobs) if (m.boss || m.type === 'ender_dragon') return m;
     return null;
   }
 
@@ -729,6 +781,10 @@ export class MobManager {
       const h = this.groundY(x, z, fromY);
       if (!this.world.skyless && h <= SEA_LEVEL) continue;
       if (this.world.skyless && this.world.getBlock(x, h, z) === BLOCK.LAVA) continue;
+      // The End: never spawn over the void (the downward scan bottoms out at
+      // y 1 in empty columns — require real ground under the spot).
+      if (this.world.dim && this.world.dim.id === 'end' &&
+          !isSolid(this.world.getBlock(x, h, z))) continue;
       if (!this.isHostile(type)) {
         const block = this.world.getBlock(x, h, z);
         if (block !== BLOCK.GRASS && block !== BLOCK.SNOW) continue;
@@ -750,8 +806,10 @@ export class MobManager {
     // In roofed worlds (the nether) a top-down scan would put mobs on the
     // ceiling: search downward from the mob's current height instead.
     if (this.world.skyless && fromY != null) {
-      // Roofed worlds are NETHER_HEIGHT tall; never start the scan on the roof.
-      let y = Math.min(NETHER_HEIGHT - 2, Math.floor(fromY) + 2);
+      // Roofed worlds are NETHER_HEIGHT tall; never start the scan on the
+      // roof. The End is skyless but full-height (no roof to avoid).
+      const cap = this.world.dim && this.world.dim.id === 'end' ? CHUNK_HEIGHT - 2 : NETHER_HEIGHT - 2;
+      let y = Math.min(cap, Math.floor(fromY) + 2);
       while (y > 1 && !isSolid(this.world.getBlock(bx, y, bz))) y--;
       return y;
     }
@@ -904,6 +962,11 @@ export class MobManager {
 
   damageMob(mob, amount, fromPos) {
     if (!mob || amount <= 0) return null;
+    // The dragon only takes full damage while perched (vanilla-flavoured):
+    // hits on the wing are halved. Crystals die to any hit (hp 1).
+    if (mob.type === 'ender_dragon' && mob.dragonState !== 'perch') {
+      amount = Math.max(1, Math.round(amount * 0.5));
+    }
     mob.health -= amount;
     mob.hurtTimer = 0.22;
     for (const child of mob.mesh.children) child.material = this.materials.hurt;
@@ -912,7 +975,7 @@ export class MobManager {
     const dx = p.x - fromPos.x;
     const dz = p.z - fromPos.z;
     const len = Math.hypot(dx, dz) || 1;
-    if (!mob.boss) {
+    if (!mob.boss && mob.type !== 'ender_dragon' && mob.type !== 'crystal') {
       mob.velocity.x += (dx / len) * 4.2;
       mob.velocity.z += (dz / len) * 4.2;
     }
@@ -967,6 +1030,9 @@ export class MobManager {
   update(dt, player, survival, dayT) {
     const playerPos = player.getObject().position;
     const night = this.isNight(dayT);
+    const dimId = this.world.dim ? this.world.dim.id : 'overworld';
+    // `nether` kept as "roofed/skyless" for the legacy branches below; the End
+    // is skyless too but gets its own spawn branch keyed on dimId.
     const nether = !!this.world.skyless;
 
     // Despawn hostile mobs at dawn (overworld only; the boss, dungeon spawner
@@ -986,7 +1052,18 @@ export class MobManager {
     }
 
     // Ambient spawning (weighted lists derived from MOB_DEFS.spawn).
-    if (nether) {
+    if (dimId === 'end') {
+      // Endermen only, day and night (the End has no daylight cycle).
+      this.spawnTimer -= dt;
+      if (this.spawnTimer <= 0) {
+        this.spawnTimer = SPAWN_INTERVAL;
+        const endermen = this.mobs.filter((m) => m.type === 'enderman').length;
+        if (endermen < 4) {
+          const pick = weightedPick(this.spawnLists.end);
+          if (pick) this.spawnNear(playerPos, pick.type);
+        }
+      }
+    } else if (nether) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
         this.spawnTimer = SPAWN_INTERVAL;
@@ -1099,6 +1176,21 @@ export class MobManager {
       if (m.boss) {
         this._bossAI(m, dt, player, survival, playerPos);
         continue; // the boss flies: it owns its y position
+      }
+
+      // Phase 9: dragon and crystals own their vertical position entirely.
+      if (def.ai === 'dragon') {
+        this._dragonAI(m, dt, player, survival, playerPos);
+        continue;
+      }
+      if (def.ai === 'crystal') {
+        this._crystalAI(m, dt);
+        continue;
+      }
+      // Anything that wanders off the End island falls forever: cull it.
+      if (dimId === 'end' && p.y < -10) {
+        this.removeAt(i);
+        continue;
       }
 
       if (def.hostile) {
@@ -1729,6 +1821,144 @@ export class MobManager {
   spawnBoss(pos) {
     if (this.getBoss()) return null;
     return this.addMob(pos.clone(), 'boss');
+  }
+
+  // ---- Phase 9: the Ender Dragon --------------------------------------------------
+  // State machine: CIRCLE (orbit the island centre at pillar height), STRAFE
+  // (dive at the player every ~12 s: 10 dmg + big knockback on contact), PERCH
+  // (land on the island centre every ~45 s for 8 s — the only time it takes
+  // full damage; a breath aura ticks 1 dmg/s within 4 blocks). While any end
+  // crystal lives the dragon regenerates 1 HP/s and a beam links them.
+  _dragonAI(m, dt, player, survival, playerPos) {
+    const p = m.mesh.position;
+    if (m.dragonState == null) {
+      m.dragonState = 'circle';
+      m.strafeTimer = 12;
+      m.perchTimer = 45;
+      m.stateT = 0;
+      m.perchY = this.world.columnHeight ? this.world.columnHeight(0, 0) + 1 : 61;
+    }
+    m.stateT += dt;
+
+    // Crystal healing: nearest living crystal regenerates the dragon and gets
+    // a visible beam (a two-point THREE.Line updated in place).
+    let crystal = null;
+    let bestD = Infinity;
+    for (const o of this.mobs) {
+      if (o.type !== 'crystal') continue;
+      const d = o.mesh.position.distanceTo(p);
+      if (d < bestD) { bestD = d; crystal = o; }
+    }
+    if (crystal) {
+      m.health = Math.min(m.maxHealth, m.health + 1 * dt);
+      if (!m.beamLine) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+        m.beamLine = new THREE.Line(geo, this.beamMaterial);
+        m.beamLine.frustumCulled = false;
+        this.scene.add(m.beamLine);
+      }
+      const arr = m.beamLine.geometry.attributes.position.array;
+      arr[0] = p.x; arr[1] = p.y + 1.5; arr[2] = p.z;
+      const c = crystal.mesh.position;
+      arr[3] = c.x; arr[4] = c.y + 1.05; arr[5] = c.z;
+      m.beamLine.geometry.attributes.position.needsUpdate = true;
+    } else if (m.beamLine) {
+      this.scene.remove(m.beamLine);
+      m.beamLine.geometry.dispose();
+      m.beamLine = null;
+    }
+
+    const attack = !this.playerInvulnerable; // creative: fly the pattern, never harm
+
+    if (m.dragonState === 'circle') {
+      m.bossAngle += dt * 0.22;
+      const tx = Math.cos(m.bossAngle) * 40;
+      const tz = Math.sin(m.bossAngle) * 40;
+      const ty = 84 + Math.sin(m.bossAngle * 2.3) * 4;
+      p.x += (tx - p.x) * Math.min(1, dt * 1.1);
+      p.y += (ty - p.y) * Math.min(1, dt * 1.1);
+      p.z += (tz - p.z) * Math.min(1, dt * 1.1);
+      // Face along the orbit tangent.
+      m.mesh.rotation.y = Math.atan2(-Math.sin(m.bossAngle), Math.cos(m.bossAngle)) + Math.PI / 2;
+
+      m.strafeTimer -= dt;
+      m.perchTimer -= dt;
+      if (m.perchTimer <= 0) {
+        m.dragonState = 'perchApproach';
+        m.stateT = 0;
+      } else if (attack && m.strafeTimer <= 0) {
+        m.dragonState = 'strafe';
+        m.stateT = 0;
+        m.strafeTarget = playerPos.clone();
+        m.strafeHit = false;
+      }
+    } else if (m.dragonState === 'strafe') {
+      // Dive through the captured player position at speed; contact deals 10
+      // damage and a big knockback, then it climbs back to the circle.
+      const target = m.strafeTarget;
+      const dir = target.clone().sub(p);
+      const dist = dir.length();
+      if (dist > 0.01) {
+        dir.multiplyScalar(1 / dist);
+        p.addScaledVector(dir, Math.min(dist, 18 * dt));
+        m.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+      }
+      if (attack && !m.strafeHit && p.distanceTo(playerPos) < 3) {
+        m.strafeHit = true;
+        survival.damage(10, 'Dragon strike', p);
+        const away = playerPos.clone().sub(p);
+        away.y = 0;
+        away.normalize();
+        player.velocity.x += away.x * 14;
+        player.velocity.y += 8;
+        player.velocity.z += away.z * 14;
+      }
+      if (dist < 2 || m.stateT > 6) {
+        m.dragonState = 'circle';
+        m.strafeTimer = 12;
+      }
+    } else if (m.dragonState === 'perchApproach') {
+      const target = new THREE.Vector3(0.5, m.perchY, 0.5);
+      const dir = target.clone().sub(p);
+      const dist = dir.length();
+      if (dist > 0.01) {
+        dir.multiplyScalar(1 / dist);
+        p.addScaledVector(dir, Math.min(dist, 12 * dt));
+        m.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+      }
+      if (dist < 1.2 || m.stateT > 10) {
+        m.dragonState = 'perch';
+        m.stateT = 0;
+        m.breathTick = 0;
+      }
+    } else if (m.dragonState === 'perch') {
+      p.set(0.5, m.perchY, 0.5);
+      m.mesh.rotation.y = Math.atan2(playerPos.x - p.x, playerPos.z - p.z);
+      // Breath aura: 1 dmg/s to players within 4 blocks.
+      if (attack) {
+        m.breathTick = (m.breathTick || 0) + dt;
+        if (m.breathTick >= 1) {
+          m.breathTick -= 1;
+          if (playerPos.distanceTo(p) < 4) survival.damage(1, 'Dragon breath', p);
+        }
+      }
+      if (m.stateT >= 8) {
+        m.dragonState = 'circle';
+        m.perchTimer = 45;
+        m.strafeTimer = Math.max(m.strafeTimer, 4);
+      }
+    }
+  }
+
+  // End crystals: hold position, spin the core, bob gently. Death (any hit,
+  // hp 1) is handled by the shared damageMob path; main.js adds the blast.
+  _crystalAI(m, dt) {
+    const core = m.mesh.userData.core;
+    if (core) {
+      core.rotation.y += dt * 1.6;
+      core.position.y = 1.05 + Math.sin((m.stateT = (m.stateT || 0) + dt) * 2) * 0.08;
+    }
   }
 
   // ---- Phase 8: villages -------------------------------------------------------

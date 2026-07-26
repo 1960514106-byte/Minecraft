@@ -168,6 +168,12 @@ export const BLOCK = {
   LAPIS_ORE: 133,          // deep ore; drops 4-8 lapis (future enchanting currency)
   // ---- Phase 8: villages & trading (134+) --------------------------------------
   EMERALD_BLOCK: 134,      // storage block: 9 emeralds <-> 1 block (shapeless)
+  // ---- Phase 9: the End (135+) ---------------------------------------------------
+  END_PORTAL_FRAME: 135,   // stronghold portal ring; meta bit0 = eye inserted
+  END_PORTAL: 136,         // activated portal interior (flat dark starry sheet)
+  END_STONE: 137,          // the End island material
+  DRAGON_EGG: 138,         // victory trophy; right-click teleports it
+  BEACON: 139,             // nether-star sink: buffs players near a 3x3 base
 };
 
 // Wool blocks in vanilla colour order, plus the RGB used by the texture
@@ -522,6 +528,17 @@ export const TILES = {
   LAPIS:          250,
   // ---- Phase 8 (251+): villages & trading -----------------------------------------
   EMERALD_BLOCK:  251,
+  // ---- Phase 9 (252+): the End ------------------------------------------------------
+  // --- row 63 (252..255) ---
+  END_STONE:      252,
+  END_PORTAL_FRAME_TOP: 253,
+  END_PORTAL_FRAME_SIDE: 254,
+  END_PORTAL:     255,
+  // --- row 64 (256..259) ---
+  END_PORTAL_EYE: 256,   // the inserted-eye stud on a frame
+  DRAGON_EGG:     257,
+  BEACON:         258,
+  EYE_OF_ENDER:   259,   // item icon
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -657,6 +674,8 @@ export const ITEM = {
   // ---- Phase 5 (1118+): worldgen 2.0 currencies ---------------------------------
   EMERALD: 1118,
   LAPIS: 1119,
+  // ---- Phase 9 (1120+): the End ----------------------------------------------------
+  EYE_OF_ENDER: 1120,
 };
 
 // Per-block definition. `top`/`bottom`/`side` are atlas tile indices.
@@ -846,6 +865,21 @@ export const BLOCKS = {
   [BLOCK.LAPIS_ORE]: { name: 'Lapis Lazuli Ore', top: TILES.LAPIS_ORE, bottom: TILES.LAPIS_ORE, side: TILES.LAPIS_ORE, solid: true, transparent: false, hardness: 2.4, tool: 'pickaxe', minTier: 2, drops: [{ id: ITEM.LAPIS, count: 4, max: 8 }] }, // count..max rolled by blockDrop()
   // ---- Phase 8: emerald storage block (decorative; shapeless <-> 9 emeralds) -------
   [BLOCK.EMERALD_BLOCK]: { name: 'Emerald Block', top: TILES.EMERALD_BLOCK, bottom: TILES.EMERALD_BLOCK, side: TILES.EMERALD_BLOCK, solid: true, transparent: false, hardness: 3.0, tool: 'pickaxe', minTier: 2 },
+  // ---- Phase 9: the End ---------------------------------------------------------------
+  // Frame: indestructible like bedrock; a 13/16-tall box (custom 'endframe'
+  // model) whose meta bit0 draws the inserted-eye stud. transparent so the
+  // partial shape never black-holes its neighbours' faces.
+  [BLOCK.END_PORTAL_FRAME]: { name: 'End Portal Frame', top: TILES.END_PORTAL_FRAME_TOP, bottom: TILES.END_STONE, side: TILES.END_PORTAL_FRAME_SIDE, solid: true, transparent: true, hardness: Infinity, model: 'endframe', drops: [] },
+  // Activated portal interior: a flat dark starry sheet near the top of the
+  // cell ('endportal' model). Non-solid: standing in it teleports (main.js).
+  [BLOCK.END_PORTAL]: { name: 'End Portal', top: TILES.END_PORTAL, bottom: TILES.END_PORTAL, side: TILES.END_PORTAL, solid: false, transparent: true, hardness: Infinity, model: 'endportal', light: 13, drops: [] },
+  [BLOCK.END_STONE]: { name: 'End Stone', top: TILES.END_STONE, bottom: TILES.END_STONE, side: TILES.END_STONE, solid: true, transparent: false, hardness: 2.2, tool: 'pickaxe' },
+  // Dragon egg: victory trophy. Right-click teleports it 1-5 blocks (main.js);
+  // mining it drops the block itself.
+  [BLOCK.DRAGON_EGG]: { name: 'Dragon Egg', top: TILES.DRAGON_EGG, bottom: TILES.DRAGON_EGG, side: TILES.DRAGON_EGG, solid: true, transparent: false, hardness: 1.5, light: 1 },
+  // Beacon: glass-like glowing cube. Effect logic (3x3 mineral base scan,
+  // Speed/Regeneration auras, the light beam) lives in main.js.
+  [BLOCK.BEACON]: { name: 'Beacon', top: TILES.BEACON, bottom: TILES.OBSIDIAN, side: TILES.BEACON, solid: true, transparent: true, hardness: 3.0, tool: 'pickaxe', light: 15 },
 };
 
 // Blocks selectable in the hotbar (1..N keys), in order.
@@ -1000,6 +1034,10 @@ export const ITEMS = {
   // ---- Phase 5: worldgen 2.0 currencies -------------------------------------------
   [ITEM.EMERALD]: { name: 'Emerald', tile: TILES.EMERALD },
   [ITEM.LAPIS]: { name: 'Lapis Lazuli', tile: TILES.LAPIS },
+  // ---- Phase 9: the End ---------------------------------------------------------------
+  // Right-click in the open: flies toward the stronghold, then drops (80%) or
+  // shatters. Right-click on an empty END_PORTAL_FRAME: inserts the eye.
+  [ITEM.EYE_OF_ENDER]: { name: 'Eye of Ender', tile: TILES.EYE_OF_ENDER, stack: 16 },
 };
 
 // True if an item ID refers to a placeable block (vs. an item-only thing).

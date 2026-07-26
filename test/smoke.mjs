@@ -46,7 +46,10 @@ import {
   PROFESSIONS, PROFESSION_IDS, professionForPos, tradeTierFromUses,
   unlockedTrades, TRADE_TIER_USES, MAX_TRADE_TIER,
 } from '../Minecraft/js/trades.js';
-import { rollLoot, villageLayout } from '../Minecraft/js/structures.js';
+import {
+  rollLoot, villageLayout, strongholdCenter, strongholdBaseY, END_FRAME_RING,
+} from '../Minecraft/js/structures.js';
+import { tryActivateEndPortal } from '../Minecraft/js/portal.js';
 import {
   computeLightField, extractCenterLight, buildMeshArrays, SNAP_W, SNAP_VOL,
 } from '../Minecraft/js/meshcore.js';
@@ -358,7 +361,7 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 15, 'migrated save version is 15 (v7 chains through the whole ladder)');
+  assert(m.version === 16, 'migrated save version is 16 (v7 chains through the whole ladder)');
   assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
@@ -379,17 +382,17 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 15 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+  assert(v3.version === 16 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
     'v3 save migrates through the whole chain');
 
   // A v8 save gains the mode field, then the fluids/boats defaults.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 15 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+  assert(v8.version === 16 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
     'v8 save upgrades to current with mode survival, ids untouched');
 
   // v9 -> v10: fluids/boats defaults appear, everything else untouched.
   const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
-  assert(v9.version === 15 && v9.mode === 'creative', 'v9 save upgrades to current (mode preserved)');
+  assert(v9.version === 16 && v9.mode === 'creative', 'v9 save upgrades to current (mode preserved)');
   assert(v9.fluids && Array.isArray(v9.fluids.active) && v9.fluids.active.length === 0,
     'v9 -> v10 adds an empty fluids state');
   assert(Array.isArray(v9.boats) && v9.boats.length === 0, 'v9 -> v10 adds an empty boats list');
@@ -401,7 +404,7 @@ function grid(...entries) {
     fluids: { active: ['1,2,3'] }, boats: [{ x: 1, y: 20, z: 3 }],
     mobs: [{ type: 'pig', x: 1, y: 20, z: 3, health: 8, baby: true, growTimer: 5 }],
   });
-  assert(v10.version === 15 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
+  assert(v10.version === 16 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
     'v10 save upgrades to current (fluids/boats preserved)');
   assert(v10.mobs.length === 1 && v10.mobs[0].type === 'pig' && v10.mobs[0].baby === true,
     'v10 -> v11 leaves saved mobs untouched');
@@ -412,14 +415,14 @@ function grid(...entries) {
     version: 11, seed: 1337, mobs: [{ type: 'slime', size: 2, x: 0, z: 0 }],
     redstone: { levers: ['1,2,3'], pistons: {}, repeaters: {} },
   });
-  assert(v11.version === 15 && v11.mobs[0].size === 2, 'v11 save upgrades to current');
+  assert(v11.version === 16 && v11.mobs[0].size === 2, 'v11 save upgrades to current');
   assert(v11.dispensers && Object.keys(v11.dispensers).length === 0,
     'v11 -> v12 adds an empty dispensers map');
   assert(v11.hoppers && Object.keys(v11.hoppers).length === 0,
     'v11 -> v12 adds an empty hoppers map');
   assert(v11.redstone.levers[0] === '1,2,3', 'v11 -> v12 leaves redstone state untouched');
   const v12 = migrateSave({ version: 12, seed: 1337, hoppers: { 'N|1,2,3': { dir: [0, -1, 0], slots: [] } } });
-  assert(v12.version === 15 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to current with hoppers intact');
+  assert(v12.version === 16 && v12.hoppers['N|1,2,3'], 'v12 save upgrades to current with hoppers intact');
 }
 
 // ---- Phase 3: buckets, boats, fishing, fluids ----------------------------------------------
@@ -579,10 +582,15 @@ function grid(...entries) {
     }
     if (def.breedFood != null) assert(defined(def.breedFood), `MOB_DEFS.${type} breedFood defined`);
     if (def.spawn) {
-      assert(def.spawn.dim === 'overworld' || def.spawn.dim === 'nether',
-        `MOB_DEFS.${type} spawn dim valid`);
-      assert(Number.isFinite(def.spawn.weight) && def.spawn.weight >= 0,
-        `MOB_DEFS.${type} spawn weight valid`);
+      // Phase 9: def.spawn may be one descriptor or a list (enderman spawns
+      // in both the overworld and the End).
+      const specs = Array.isArray(def.spawn) ? def.spawn : [def.spawn];
+      for (const s of specs) {
+        assert(s.dim === 'overworld' || s.dim === 'nether' || s.dim === 'end',
+          `MOB_DEFS.${type} spawn dim valid`);
+        assert(Number.isFinite(s.weight) && s.weight >= 0,
+          `MOB_DEFS.${type} spawn weight valid`);
+      }
     }
   }
   // All 14 legacy types are registered.
@@ -1190,7 +1198,7 @@ function grid(...entries) {
 // ---- Phase 7: migration v12 -> v13 ----------------------------------------------------------
 {
   const v12b = migrateSave({ version: 12, seed: 1337, hoppers: {}, dispensers: {} });
-  assert(v12b.version === 15, 'v12 save upgrades to current');
+  assert(v12b.version === 16, 'v12 save upgrades to current');
   assert(Array.isArray(v12b.effects) && v12b.effects.length === 0, 'v12 -> v13 adds empty effects');
   assert(v12b.brewingStands && Object.keys(v12b.brewingStands).length === 0,
     'v12 -> v13 adds empty brewingStands');
@@ -1199,7 +1207,7 @@ function grid(...entries) {
     effects: [{ id: 'speed', amp: 2, t: 30 }],
     brewingStands: { '1,2,3': { bottles: [null, null, null], charges: 5, progress: 0 } },
   });
-  assert(v13.version === 15 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
+  assert(v13.version === 16 && v13.effects[0].id === 'speed' && v13.brewingStands['1,2,3'].charges === 5,
     'v13 save chains into current');
 }
 
@@ -1338,10 +1346,10 @@ function grid(...entries) {
 // ---- Phase 5: migration v13 -> v14 -------------------------------------------------------------
 {
   const v13g = migrateSave({ version: 13, seed: 1337, effects: [], brewingStands: {} });
-  assert(v13g.version === 15 && v13g.genVersion === 1,
-    'v13 -> v14 stamps genVersion 1 on old saves (chain ends at 15)');
+  assert(v13g.version === 16 && v13g.genVersion === 1,
+    'v13 -> v14 stamps genVersion 1 on old saves (chain ends at 16)');
   const v14 = migrateSave({ version: 14, seed: 1337, genVersion: 2 });
-  assert(v14.version === 15 && v14.genVersion === 2, 'v14 save keeps genVersion 2 and chains to 15');
+  assert(v14.version === 16 && v14.genVersion === 2, 'v14 save keeps genVersion 2 and chains to 16');
 }
 
 // ---- Phase 8: villager professions + leveled trades ---------------------------------------
@@ -1465,7 +1473,7 @@ function grid(...entries) {
       { type: 'zombie', x: 0, y: 30, z: 0, health: 10 },
     ],
   });
-  assert(save.version === 15, 'v14 save migrates to v15');
+  assert(save.version >= 15, 'v14 save migrates to v15+');
   const [v1, v2, zom] = save.mobs;
   assert(v1.profession === professionForPos(100.5, -40.5) && v1.tradeTier === 1 && v1.tradeUses === 0,
     'migrated villager gains deterministic profession + tier defaults');
@@ -1473,7 +1481,128 @@ function grid(...entries) {
     'villager with existing trade fields is untouched');
   assert(zom.profession === undefined, 'non-villagers gain no profession');
   const v15 = migrateSave({ version: 15, seed: 1337, genVersion: 2 });
-  assert(v15.version === 15, 'v15 save is untouched');
+  assert(v15.version === 16, 'v15 save chains to 16');
+}
+
+// ---- Phase 9: the End — registry, recipes, stronghold, migration ---------------------------
+{
+  // New ids exist with definitions.
+  for (const b of ['END_PORTAL_FRAME', 'END_PORTAL', 'END_STONE', 'DRAGON_EGG', 'BEACON']) {
+    assert(Number.isInteger(BLOCK[b]) && BLOCKS[BLOCK[b]], `BLOCK.${b} defined`);
+  }
+  assert(ITEM.EYE_OF_ENDER === 1120 && ITEMS[ITEM.EYE_OF_ENDER], 'ITEM.EYE_OF_ENDER defined');
+  assert(itemStackMax(ITEM.EYE_OF_ENDER) === 16, 'eyes of ender stack to 16');
+  // Custom models routed through meshcore.
+  assert(blockModel(BLOCK.END_PORTAL_FRAME) === 'endframe', 'frame uses the endframe model');
+  assert(blockModel(BLOCK.END_PORTAL) === 'endportal', 'portal uses the endportal model');
+  assert(BLOCKS[BLOCK.END_PORTAL].light === 13 && !BLOCKS[BLOCK.END_PORTAL].solid,
+    'end portal glows (13) and is walk-through');
+  assert(BLOCKS[BLOCK.BEACON].light === 15, 'beacon emits full light');
+  assert(!Number.isFinite(BLOCKS[BLOCK.END_PORTAL_FRAME].hardness), 'frames are unbreakable');
+  assert(DIMENSIONS.end && DIMENSIONS.end.editKeyPrefix === 'E|' && DIMENSIONS.end.hasSky === false,
+    'end dimension descriptor is wired');
+
+  // Frame-eye meta encoding round-trips through the edit format.
+  const enc = encodeEdit(BLOCK.END_PORTAL_FRAME, 1);
+  assert(decodeEditId(enc) === BLOCK.END_PORTAL_FRAME && decodeEditMeta(enc) === 1,
+    'frame + eye meta round-trips through encodeEdit');
+
+  // Recipes: eye of ender (shapeless) and beacon (shaped 3x3).
+  const eye = craftResult(grid([0, ITEM.ENDER_PEARL], [1, ITEM.BLAZE_POWDER]), 2);
+  assert(eye && eye.id === ITEM.EYE_OF_ENDER && eye.count === 1,
+    'ender pearl + blaze powder -> eye of ender');
+  const beacon = craftResult(grid(
+    [0, BLOCK.GLASS], [1, BLOCK.GLASS], [2, BLOCK.GLASS],
+    [3, BLOCK.GLASS], [4, ITEM.NETHER_STAR], [5, BLOCK.GLASS],
+    [6, BLOCK.OBSIDIAN], [7, BLOCK.OBSIDIAN], [8, BLOCK.OBSIDIAN],
+  ), 3);
+  assert(beacon && beacon.id === BLOCK.BEACON, '5 glass + nether star + 3 obsidian -> beacon');
+
+  // Stronghold: deterministic, 600-1100 blocks out, base Y in the buried band.
+  const c1 = strongholdCenter();
+  const c2 = strongholdCenter();
+  assert(c1.x === c2.x && c1.z === c2.z, 'strongholdCenter is deterministic');
+  const dist = Math.hypot(c1.x, c1.z);
+  assert(dist >= 600 && dist <= 1100, `stronghold sits 600-1100 blocks out (${dist.toFixed(1)})`);
+  const mockTerrain = new TerrainGen(WORLD_SEED, 2);
+  const sy = strongholdBaseY({ columnHeight: (x, z) => mockTerrain.columnHeight(x, z) });
+  assert(sy >= 8 && sy <= 20, `stronghold base y ${sy} within 8..20`);
+
+  // The frame ring: 12 unique cells bordering (but not inside) the 3x3 pool.
+  assert(END_FRAME_RING.length === 12, '12 frame positions');
+  assert(new Set(END_FRAME_RING.map(([a, b]) => `${a},${b}`)).size === 12, 'ring cells unique');
+  for (const [dx, dz] of END_FRAME_RING) {
+    assert(Math.max(Math.abs(dx), Math.abs(dz)) === 2 && Math.min(Math.abs(dx), Math.abs(dz)) <= 1,
+      `ring cell (${dx},${dz}) borders the interior`);
+  }
+
+  // tryActivateEndPortal against a tiny fake world: fills the 3x3 only once
+  // every frame carries an eye.
+  {
+    const cells = new Map();
+    const k = (x, y, z) => `${x},${y},${z}`;
+    const fake = {
+      getBlock: (x, y, z) => (cells.has(k(x, y, z)) ? cells.get(k(x, y, z)).id : BLOCK.AIR),
+      getMeta: (x, y, z) => (cells.has(k(x, y, z)) ? cells.get(k(x, y, z)).meta : 0),
+      setBlock: (x, y, z, id, meta = 0) => cells.set(k(x, y, z), { id, meta }),
+    };
+    for (let i = 0; i < END_FRAME_RING.length; i++) {
+      const [dx, dz] = END_FRAME_RING[i];
+      fake.setBlock(10 + dx, 20, 10 + dz, BLOCK.END_PORTAL_FRAME, i < 11 ? 1 : 0);
+    }
+    assert(tryActivateEndPortal(fake, 10 + END_FRAME_RING[0][0], 20, 10 + END_FRAME_RING[0][1]) === null,
+      '11 eyed frames do not activate the portal');
+    fake.setBlock(10 + END_FRAME_RING[11][0], 20, 10 + END_FRAME_RING[11][1], BLOCK.END_PORTAL_FRAME, 1);
+    const filled = tryActivateEndPortal(fake, 10 + END_FRAME_RING[11][0], 20, 10 + END_FRAME_RING[11][1]);
+    assert(Array.isArray(filled) && filled.length === 9, '12 eyed frames fill the 3x3 interior');
+    assert(filled.every((c) => fake.getBlock(c.x, c.y, c.z) === BLOCK.END_PORTAL),
+      'interior cells became END_PORTAL');
+  }
+
+  // Stronghold loot table rolls valid stacks.
+  {
+    let seed = 42;
+    const stream = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
+      return (seed >>> 0) / 4294967296;
+    };
+    const loot = rollLoot('stronghold', stream).filter(Boolean);
+    assert(loot.length > 0, 'stronghold loot table yields items');
+    assert(loot.every((s) => defined(s.id) && s.count >= 1), 'stronghold loot ids defined');
+  }
+
+  // Dragon + crystal registry entries and AI handlers.
+  assert(AI_NAMES.includes('dragon') && AI_NAMES.includes('crystal'),
+    'dragon/crystal AI handler names registered');
+  const dragon = MOB_DEFS.ender_dragon;
+  assert(dragon && dragon.hp === 200 && dragon.ai === 'dragon' && dragon.flies && dragon.persist,
+    'ender dragon def: hp 200, dragon AI, flies, persists');
+  assert(dragon.xp === 0, 'dragon xp is 0 (paid via the victory shower — documented)');
+  const crystal = MOB_DEFS.crystal;
+  assert(crystal && crystal.hp === 1 && crystal.ai === 'crystal' && crystal.hostile === false,
+    'end crystal def: hp 1, crystal AI, non-hostile');
+  // End spawn list: endermen only.
+  const endList = spawnCandidates({ dim: 'end' });
+  assert(endList.length === 1 && endList[0].type === 'enderman',
+    'the End ambient list is exactly the enderman');
+  const nightList = spawnCandidates({ dim: 'overworld', time: 'night' });
+  const endermanNight = nightList.find((c) => c.type === 'enderman');
+  assert(endermanNight && endermanNight.weight === 0.44,
+    'enderman keeps its overworld night weight');
+
+  // Migration v15 -> v16: dims.end bucket + dragonDefeated default.
+  const migrated = migrateSave({ version: 15, seed: 1337, genVersion: 2 });
+  assert(migrated.version === 16, 'v15 save migrates to v16');
+  assert(migrated.dims && typeof migrated.dims.end === 'object', 'migration adds dims.end');
+  assert(migrated.dragonDefeated === false, 'migration defaults dragonDefeated to false');
+  const kept = migrateSave({
+    version: 15, seed: 1337, dragonDefeated: true,
+    dims: { end: { edits: { '0,0': { '1,60,1': BLOCK.END_STONE } } } },
+  });
+  assert(kept.dragonDefeated === true && kept.dims.end.edits['0,0']['1,60,1'] === BLOCK.END_STONE,
+    'migration preserves existing dims.end data + victory flag');
+  const v16 = migrateSave({ version: 16, seed: 1337 });
+  assert(v16.version === 16, 'v16 save is untouched');
 }
 
 // ---- Noise determinism ------------------------------------------------------------------

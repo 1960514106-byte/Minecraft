@@ -195,9 +195,21 @@ function v14to15(save) {
   return save;
 }
 
+// v15 -> v16: Phase 9 (the End). Saves gain the per-dimension `dims` map with
+// an `end` bucket (edits/redstone/fluids of the third dimension) plus the
+// `dragonDefeated` victory flag. Stronghold eye-of-ender insertions are plain
+// overworld edits (frame meta bit0) so they need no dedicated field.
+function v15to16(save) {
+  if (!save.dims || typeof save.dims !== 'object') save.dims = {};
+  if (!save.dims.end || typeof save.dims.end !== 'object') save.dims.end = {};
+  if (typeof save.dragonDefeated !== 'boolean') save.dragonDefeated = false;
+  save.version = 16;
+  return save;
+}
+
 const MIGRATIONS = {
   7: v7to8, 8: v8to9, 9: v9to10, 10: v10to11, 11: v11to12, 12: v12to13, 13: v13to14,
-  14: v14to15,
+  14: v14to15, 15: v15to16,
 };
 
 export function migrateSave(save) {

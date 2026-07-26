@@ -526,6 +526,30 @@ export function buildMeshArrays(blocks, meta, sky, blk, skyless) {
         } else if (model === 'button') {
           const rg = cellLightRG(x, y, z);
           pushBoxOp(x + 0.3125, y, z + 0.375, x + 0.6875, y + 0.125, z + 0.625, tile, rg);
+        } else if (model === 'endframe') {
+          // End portal frame: a 13/16-tall box (side texture), a top cap quad
+          // (frame-top texture) and, when meta bit0 is set, the inserted-eye
+          // stud box on top. Shared by the worker and sync mesh paths.
+          const rg = cellLightRG(x, y, z);
+          const topY = y + 0.8125;
+          pushBoxOp(x, y, z, x + 1, topY, z + 1, tile, rg, [0.1875, 1]);
+          const topTile = faceTile(id, 'top');
+          pushQuadOp(
+            [[x, topY + 0.001, z + 1], [x + 1, topY + 0.001, z + 1], [x + 1, topY + 0.001, z], [x, topY + 0.001, z]],
+            [0, 1, 0], topTile, rg, false,
+          );
+          if ((metaAtLocal(x, y, z) & 1) === 1) {
+            pushBoxOp(x + 0.25, topY, z + 0.25, x + 0.75, y + 1, z + 0.75, TILES.END_PORTAL_EYE, rg);
+          }
+        } else if (model === 'endportal') {
+          // Activated end portal: a single up-facing dark starfield quad near
+          // the top of the cell. One-sided (invisible from below, like water).
+          const rg = cellLightRG(x, y, z);
+          const py = y + 0.75;
+          pushQuadOp(
+            [[x, py, z + 1], [x + 1, py, z + 1], [x + 1, py, z], [x, py, z]],
+            [0, 1, 0], tile, rg, false,
+          );
         } else if (model === 'portal') {
           const rg = cellLightRG(x, y, z);
           const alongX =

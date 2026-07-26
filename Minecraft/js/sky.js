@@ -141,14 +141,22 @@ export class DayNightCycle {
   skip(df) { this.t = (this.t + df) % 1; if (this.t < 0) this.t += 1; this.apply(); }
   togglePause() { this.paused = !this.paused; }
 
-  // Nether mode: constant oppressive dark-red sky, no sun/moon/clouds. Time
-  // still advances underneath so the overworld picks up where it left off.
-  setNether(on) {
-    this.nether = on;
-    this.moon.visible = !on && this.moon.visible;
-    if (this.sunMesh) this.sunMesh.visible = !on && this.sunMesh.visible;
-    if (this.clouds) this.clouds.visible = !on;
+  // Dimension presets. 'nether' = constant oppressive dark-red sky; 'end' =
+  // static purple-black void. Neither has sun/moon/clouds. Time still advances
+  // underneath so the overworld picks up where it left off.
+  setDimension(id) {
+    this.mode = id === 'nether' || id === 'end' ? id : 'overworld';
+    this.nether = this.mode === 'nether'; // legacy flag, kept for reads
+    const skyless = this.mode !== 'overworld';
+    this.moon.visible = !skyless && this.moon.visible;
+    if (this.sunMesh) this.sunMesh.visible = !skyless && this.sunMesh.visible;
+    if (this.clouds) this.clouds.visible = !skyless;
     this.apply();
+  }
+
+  // Back-compat wrapper (pre-Phase-9 callers).
+  setNether(on) {
+    this.setDimension(on ? 'nether' : 'overworld');
   }
 
   // Human-readable 24h clock derived from the day fraction (0 = 00:00).
@@ -175,6 +183,29 @@ export class DayNightCycle {
   // origin), so it orbits the origin. The moon is a real mesh, so it orbits the
   // camera `centre` to stay "infinitely" far away as the player moves.
   apply(centre) {
+    if (this.mode === 'end') {
+      // The End: static purple-black void, dim violet ambient, long fog so the
+      // island edge and pillars stay readable against the dark.
+      const sky = _a.setHex(0x0b0713);
+      if (this.scene.background) this.scene.background.copy(sky);
+      else this.scene.background = sky.clone();
+      if (this.scene.fog) {
+        this.scene.fog.color.setHex(0x140b24);
+        this.scene.fog.near = 60;
+        this.scene.fog.far = 140;
+      }
+      this.sun.color.setHex(0xb9a6e0);
+      this.sun.intensity = 0.35;
+      this.sun.position.set(-40, 90, -25);
+      this.moon.visible = false;
+      if (this.sunMesh) this.sunMesh.visible = false;
+      if (this.clouds) this.clouds.visible = false;
+      if (this.hemi) {
+        this.hemi.intensity = 0.38;
+        this.hemi.color.setHex(0xa89ac8);
+      }
+      return;
+    }
     if (this.nether) {
       const sky = _a.setHex(0x2a0d0a);
       if (this.scene.background) this.scene.background.copy(sky);

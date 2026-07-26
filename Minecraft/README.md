@@ -69,6 +69,33 @@ vendored locally under `js/vendor/`.
   a Nether Star trophy
 - Golden apples (full heal) help you survive the fight
 
+### The End (Phase 9 endgame)
+- Craft **eyes of ender** (ender pearl + blaze powder). Thrown eyes fly toward
+  the **stronghold** — a buried stone-brick complex 600–1100 blocks out
+  (seed-deterministic, one per world) with corridors, a bookshelf library,
+  loot chests and the **portal room**: a 12-frame end portal ring over a
+  silverfish spawner and a lava basin (3 frames come pre-eyed)
+- Right-click each empty frame with an eye of ender; when all 12 carry eyes
+  the 3×3 interior fills with **end portal** blocks — step in to reach
+  **the End**: an end-stone island floating in a starless void, ringed by
+  eight obsidian pillars, home only to endermen
+- The **Ender Dragon** (200 HP) circles the island: it dive-bombs you every
+  ~12 s (10 dmg + heavy knockback), perches on the island centre every ~45 s
+  (the only time it takes full damage — elsewhere hits are halved) and
+  **regenerates from the end crystals** atop the pillars (watch for the pink
+  beam). Destroy the crystals (one hit — they explode!) before going for the
+  kill
+- Victory pays a 120-XP shower, raises the bedrock **exit portal** with the
+  **dragon egg** trophy on top (right-click teleports it; mine it to keep it)
+  and unlocks the way home — stepping through rolls the **credits**
+- Falling off the island is death. Dying in the End respawns you in the
+  overworld; before victory the only exits are death (or leaving in creative
+  by other means — the exit portal exists only after the dragon falls)
+- The **beacon** (5 glass + nether star + 3 obsidian) closes the Overlord
+  loop: placed on a 3×3 base of iron/gold blocks it grants **Speed I** within
+  32 blocks (re-applied every 4 s); an all-diamond/emerald base upgrades that
+  to **Speed II + Regeneration I**, with a light beam to the sky
+
 ### Mobs
 - Night hostiles: zombies, skeletons (real dodgeable arrows), creepers
   (explosions through the shared explosion system) and **spiders** that climb
@@ -248,6 +275,9 @@ offline - no internet connection or CDN is required. See the import map in
 | Ignite TNT | Right click TNT with a torch or flint & steel |
 | Light a nether portal | Right click inside an obsidian frame with flint & steel |
 | Throw ender pearl | Right click with an ender pearl (teleports you) |
+| Throw eye of ender | Right click with an eye of ender (flies toward the stronghold) |
+| Insert eye into portal frame | Right click an empty end portal frame with an eye of ender |
+| Teleport the dragon egg | Right click it |
 | Open / close door | Right click the door |
 | Press button / cycle repeater delay | Right click it |
 | Toggle comparator mode / cycle note-block pitch | Right click it |
@@ -296,6 +326,7 @@ js/
   chunk.js        # chunk storage + geometry upload + lit materials
   world.js        # biomes, terrain, caves, ores, trees, streaming, edits, raycast
   nether.js       # the nether dimension (roofed cavern world, lava sea)
+  end.js          # the End dimension (void island, obsidian pillars)
   structures.js   # villages, dungeons, mineshafts, fortresses + loot tables
   portal.js       # obsidian frame validation, portal lighting/collapse/arrival
   player.js       # pointer-lock camera, movement, water physics, AABB collision
@@ -353,12 +384,17 @@ js/
   borders without generation-order problems.
 - The nether is a second `World` instance with its own generator and edits
   diff. Portal travel swaps chunk meshes, rebinds subsystems and parks loose
-  entities (drops/minecarts) per dimension.
-- Saves store diffs against the procedural seed for BOTH dimensions, plus all
-  entity/system state (SAVE_VERSION 14; older saves upgrade through the
-  `storage.js` migration chain — v13→14 stamps `genVersion: 1`).
+  entities (drops/minecarts) per dimension. The End (Phase 9) is a THIRD such
+  instance behind the same machinery: its own redstone/fluids engines, `E|`
+  container-key prefix and a `dims.end` save bucket — adding a dimension is
+  now a descriptor + generator + `ensureX()` wiring.
+- Saves store diffs against the procedural seed for ALL dimensions, plus all
+  entity/system state (SAVE_VERSION 16; older saves upgrade through the
+  `storage.js` migration chain — v13→14 stamps `genVersion: 1`, v15→16 adds
+  `dims.end` + `dragonDefeated`).
 - Known scope cut: the boss despawns on save/load (summon it again with a new
-  sigil).
+  sigil). The Ender Dragon fight resets if you leave the End mid-fight
+  (crystals + dragon respawn fresh on re-entry until `dragonDefeated`).
 
 ## Crafting quick reference
 
@@ -388,6 +424,8 @@ Fermented spider eye: sugar + spider eye (shapeless)
 Anvil: 3 iron blocks over 4 iron ingots
 Shield: 6 planks + iron ingot (top middle)
 Emerald block: 9 emeralds (shapeless); 1 emerald block -> 9 emeralds
+Eye of ender: ender pearl + blaze powder (shapeless)
+Beacon: 3 glass / glass + nether star + glass / 3 obsidian
 ```
 
 ## Possible extensions

@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { BLOCK, CHUNK_HEIGHT } from './config.js';
+import { END_FRAME_RING } from './structures.js';
 
 const MIN_W = 2, MAX_W = 4;
 const MIN_H = 3, MAX_H = 5;
@@ -145,4 +146,62 @@ export function findPortalNear(world, x, y, z, radius = 12) {
     }
   }
   return null;
+}
+
+// =============================================================================
+// Phase 9: end portal (stronghold frame ring) helpers. Shares END_FRAME_RING
+// with the stronghold generator so activation and generation can never drift.
+// =============================================================================
+
+// Called after an eye is inserted into the frame at (fx, y, fz). Scans every
+// 3x3 interior the frame could border; if all 12 ring frames around one of
+// them carry an eye (meta bit0), fills that interior with END_PORTAL blocks.
+// Returns the filled cells, or null if no ring is complete.
+export function tryActivateEndPortal(world, fx, y, fz) {
+  for (let cx = fx - 2; cx <= fx + 2; cx++) {
+    for (let cz = fz - 2; cz <= fz + 2; cz++) {
+      let complete = true;
+      for (const [dx, dz] of END_FRAME_RING) {
+        const bx = cx + dx, bz = cz + dz;
+        if (world.getBlock(bx, y, bz) !== BLOCK.END_PORTAL_FRAME ||
+            (world.getMeta(bx, y, bz) & 1) !== 1) {
+          complete = false;
+          break;
+        }
+      }
+      if (!complete) continue;
+      const cells = [];
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          world.setBlock(cx + dx, y, cz + dz, BLOCK.END_PORTAL);
+          cells.push({ x: cx + dx, y, z: cz + dz });
+        }
+      }
+      return cells;
+    }
+  }
+  return null;
+}
+
+// Remove any END_PORTAL blocks connected to (x,y,z) — used when a frame is
+// broken (creative) so no orphaned portal sheet stays behind.
+export function collapseEndPortalAt(world, x, y, z) {
+  const removed = [];
+  const stack = [[x, y, z]];
+  const seen = new Set();
+  while (stack.length) {
+    const [cx, cy, cz] = stack.pop();
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const nx = cx + dx, ny = cy + dy, nz = cz + dz;
+      const k = `${nx},${ny},${nz}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (world.getBlock(nx, ny, nz) === BLOCK.END_PORTAL) {
+        world.setBlock(nx, ny, nz, BLOCK.AIR);
+        removed.push({ x: nx, y: ny, z: nz });
+        stack.push([nx, ny, nz]);
+      }
+    }
+  }
+  return removed;
 }
