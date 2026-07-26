@@ -33,6 +33,7 @@ const LOOT_TABLES = {
     { id: ITEM.IRON_INGOT, min: 1, max: 2, chance: 0.4 },
     { id: ITEM.APPLE, min: 1, max: 3, chance: 0.6 },
     { id: ITEM.CARROT, min: 1, max: 3, chance: 0.4 },
+    { id: ITEM.RAW_FISH, min: 1, max: 2, chance: 0.35 },
   ],
   dungeon: [
     { id: ITEM.IRON_INGOT, min: 1, max: 3, chance: 0.7 },

@@ -427,6 +427,15 @@ export const TILES = {
   LIME_DYE:       199,
   // --- row 50 (200..203) ---
   PINK_DYE:       200,
+  // ---- Phase 3 (201+): buckets, boat, fishing --------------------------------
+  BUCKET:         201,
+  WATER_BUCKET:   202,
+  LAVA_BUCKET:    203,
+  // --- row 51 (204..207) ---
+  BOAT:           204,
+  FISHING_ROD:    205,
+  RAW_FISH:       206,
+  COOKED_FISH:    207,
 };
 
 // Non-block item IDs. Items and blocks share one numeric ID space so an
@@ -524,6 +533,14 @@ export const ITEM = {
   ORANGE_DYE: 1086,
   LIME_DYE: 1087,
   PINK_DYE: 1088,
+  // ---- Phase 3 (1089+) --------------------------------------------------------
+  BUCKET: 1089,
+  WATER_BUCKET: 1090,
+  LAVA_BUCKET: 1091,
+  BOAT: 1092,
+  FISHING_ROD: 1093,
+  RAW_FISH: 1094,
+  COOKED_FISH: 1095,
 };
 
 // Per-block definition. `top`/`bottom`/`side` are atlas tile indices.
@@ -789,6 +806,15 @@ export const ITEMS = {
   [ITEM.ORANGE_DYE]: { name: 'Orange Dye', tile: TILES.ORANGE_DYE },
   [ITEM.LIME_DYE]: { name: 'Lime Dye', tile: TILES.LIME_DYE },
   [ITEM.PINK_DYE]: { name: 'Pink Dye', tile: TILES.PINK_DYE },
+  // ---- Phase 3: buckets, boat, fishing ------------------------------------------
+  // Empty buckets stack (like vanilla); filled buckets don't.
+  [ITEM.BUCKET]: { name: 'Bucket', tile: TILES.BUCKET, stack: 16 },
+  [ITEM.WATER_BUCKET]: { name: 'Water Bucket', tile: TILES.WATER_BUCKET, stack: 1 },
+  [ITEM.LAVA_BUCKET]: { name: 'Lava Bucket', tile: TILES.LAVA_BUCKET, stack: 1 },
+  [ITEM.BOAT]: { name: 'Boat', tile: TILES.BOAT, stack: 1 },
+  [ITEM.FISHING_ROD]: { name: 'Fishing Rod', tile: TILES.FISHING_ROD, stack: 1, durability: 64 },
+  [ITEM.RAW_FISH]: { name: 'Raw Fish', tile: TILES.RAW_FISH, food: 2 },
+  [ITEM.COOKED_FISH]: { name: 'Cooked Fish', tile: TILES.COOKED_FISH, food: 6 },
 };
 
 // True if an item ID refers to a placeable block (vs. an item-only thing).
@@ -893,6 +919,7 @@ export const SMELTING = {
   [BLOCK.CLAY]:       { id: BLOCK.BRICK,       count: 1 },
   [BLOCK.NETHERRACK]: { id: BLOCK.NETHER_BRICK, count: 1 },
   [BLOCK.CACTUS]:     { id: ITEM.GREEN_DYE,    count: 1 },
+  [ITEM.RAW_FISH]:    { id: ITEM.COOKED_FISH,  count: 1 },
 };
 export const FUEL = {
   [ITEM.COAL]:    16,
@@ -904,6 +931,8 @@ export const FUEL = {
   [BLOCK.SPRUCE_PLANK]: 6,
   [ITEM.STICK]:   2,
   [ITEM.BLAZE_ROD]: 60,
+  // Lava bucket: huge burn; the furnace hands the empty bucket back (furnace.js).
+  [ITEM.LAVA_BUCKET]: 100,
 };
 export function smeltResult(id) { return SMELTING[id] || null; }
 export function fuelValue(id) { return FUEL[id] || 0; }
@@ -1050,6 +1079,22 @@ export function isLiquid(id) {
   const b = BLOCKS[id];
   return b ? !!b.liquid : false;
 }
+
+// ---- Fluid metadata ----------------------------------------------------------
+// WATER/LAVA cells keep their flow state in per-voxel meta:
+//   bits 0-2 = level: 0 = source, 1..7 = flowing (weaker the further from the
+//              supplier; water spreads to level 7, lava only to 3)
+//   bit 3    = falling-column flag (the cell is part of a vertical stream)
+// Worldgen oceans/lava seas default to meta 0, i.e. they are all sources.
+export const FLUID_LEVEL_MASK = 7;
+export const FLUID_FALLING_BIT = 8;
+export function fluidLevel(meta) { return meta & FLUID_LEVEL_MASK; }
+export function isFluidFalling(meta) { return (meta & FLUID_FALLING_BIT) !== 0; }
+export function fluidMeta(level, falling = false) {
+  return (level & FLUID_LEVEL_MASK) | (falling ? FLUID_FALLING_BIT : 0);
+}
+export function isFluidSource(meta) { return (meta & (FLUID_LEVEL_MASK | FLUID_FALLING_BIT)) === 0; }
+export function fluidMaxLevel(id) { return id === BLOCK.LAVA ? 3 : 7; }
 export function blockDef(id) { return BLOCKS[id]; }
 
 // Returns the atlas tile index for a given block id and face key ('top'|'bottom'|'side').

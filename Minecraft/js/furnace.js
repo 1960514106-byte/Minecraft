@@ -2,7 +2,7 @@
 // furnace.js - Per-furnace smelting state. Furnaces keep working in the background.
 // =============================================================================
 
-import { SMELT_TIME, smeltResult, fuelValue, itemStackMax } from './config.js';
+import { ITEM, SMELT_TIME, smeltResult, fuelValue, itemStackMax } from './config.js';
 
 function emptyState() {
   return { input: null, fuel: null, output: null, burn: 0, burnMax: 0, cook: 0 };
@@ -73,8 +73,13 @@ export class FurnaceManager {
     if (recipe && canOutput && s.fuel && fuelValue(s.fuel.id) > 0) {
       s.burnMax = fuelValue(s.fuel.id);
       s.burn = s.burnMax;
-      s.fuel.count -= 1;
-      if (s.fuel.count <= 0) s.fuel = null;
+      if (s.fuel.id === ITEM.LAVA_BUCKET) {
+        // Burning a lava bucket hands the empty bucket back (vanilla).
+        s.fuel = { id: ITEM.BUCKET, count: 1 };
+      } else {
+        s.fuel.count -= 1;
+        if (s.fuel.count <= 0) s.fuel = null;
+      }
       return { stateChanged: true, burnChanged: !wasBurning };
     }
 

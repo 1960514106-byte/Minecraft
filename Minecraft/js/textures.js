@@ -1867,6 +1867,88 @@ export function createAtlasTexture() {
   dyeTile(TILES.LIME_DYE, [140, 220, 60]);
   dyeTile(TILES.PINK_DYE, [240, 150, 180]);
 
+  // ===========================================================================
+  // Phase 3 tiles (201+): buckets, boat, fishing rod, fish. Appended after all
+  // earlier tiles so the shared rng stream keeps them pixel-identical.
+  // ===========================================================================
+
+  // ---- BUCKETS : grey trapezoid, optional liquid fill peeking over the rim ----
+  const bucketTile = (index, fill) => {
+    const { ox, oy } = toolTile(index);
+    // Handle arc
+    for (let x = 5; x <= 10; x++) setpx(ox + x, oy + 3, 152, 152, 160);
+    setpx(ox + 4, oy + 4, 152, 152, 160);
+    setpx(ox + 11, oy + 4, 152, 152, 160);
+    // Tapered body (wider at the rim)
+    for (let y = 5; y <= 12; y++) {
+      const inset = Math.floor((y - 5) / 3);
+      for (let x = 3 + inset; x <= 12 - inset; x++) {
+        const edge = x === 3 + inset || x === 12 - inset || y === 12;
+        const n = (rng() * 2 - 1) * 8;
+        if (fill && y <= 6 && !edge) {
+          setpx(ox + x, oy + y, fill[0] + n, fill[1] + n, fill[2] + n);
+        } else {
+          const base = edge ? 108 : 172;
+          setpx(ox + x, oy + y, base + n, base + n, base + 8 + n);
+        }
+      }
+    }
+  };
+  bucketTile(TILES.BUCKET, null);
+  bucketTile(TILES.WATER_BUCKET, [52, 104, 222]);
+  bucketTile(TILES.LAVA_BUCKET, [236, 110, 24]);
+
+  // ---- BOAT : wooden hull seen from the side ----------------------------------
+  {
+    const { ox, oy } = toolTile(TILES.BOAT);
+    for (let y = 7; y <= 11; y++) {
+      const inset = y <= 9 ? 0 : (y - 9);
+      for (let x = 2 + inset; x <= 13 - inset; x++) {
+        const rim = y === 7;
+        const n = (rng() * 2 - 1) * 10;
+        setpx(ox + x, oy + y, (rim ? 94 : 138) + n, (rim ? 66 : 98) + n, (rim ? 38 : 56) + n);
+      }
+    }
+    // Hollow interior hint
+    for (let x = 5; x <= 10; x++) setpx(ox + x, oy + 8, 74, 52, 30);
+  }
+
+  // ---- FISHING_ROD : diagonal rod, pale line, red-and-white bobber -------------
+  {
+    const { ox, oy } = toolTile(TILES.FISHING_ROD);
+    for (let i = 0; i < 10; i++) {
+      setpx(ox + 11 - i, oy + 3 + i, 124, 88, 46);
+      if (i < 9) setpx(ox + 10 - i, oy + 3 + i, 96, 66, 34);
+    }
+    for (let y = 3; y <= 9; y++) setpx(ox + 13, oy + y, 226, 226, 232);
+    setpx(ox + 12, oy + 3, 226, 226, 232);
+    setpx(ox + 13, oy + 10, 236, 60, 50);
+    setpx(ox + 13, oy + 11, 242, 242, 246);
+  }
+
+  // ---- RAW_FISH / COOKED_FISH : one painter, two palettes ----------------------
+  const fishTile = (index, body, belly, fin) => {
+    const { ox, oy } = toolTile(index);
+    for (let y = 6; y <= 10; y++) {
+      for (let x = 4; x <= 12; x++) {
+        const dy = Math.abs(y - 8);
+        if (dy === 2 && (x < 6 || x > 10)) continue;    // taper nose and rear
+        const n = (rng() * 2 - 1) * 10;
+        const c = y >= 9 ? belly : body;
+        setpx(ox + x, oy + y, c[0] + n, c[1] + n, c[2] + n);
+      }
+    }
+    // Tail fin (left) and eye (right/head)
+    setpx(ox + 2, oy + 6, fin[0], fin[1], fin[2]);
+    setpx(ox + 2, oy + 7, fin[0], fin[1], fin[2]);
+    setpx(ox + 3, oy + 8, fin[0], fin[1], fin[2]);
+    setpx(ox + 2, oy + 9, fin[0], fin[1], fin[2]);
+    setpx(ox + 2, oy + 10, fin[0], fin[1], fin[2]);
+    setpx(ox + 11, oy + 7, 22, 22, 26);
+  };
+  fishTile(TILES.RAW_FISH, [116, 142, 168], [198, 206, 212], [96, 118, 142]);
+  fishTile(TILES.COOKED_FISH, [190, 132, 70], [224, 188, 132], [156, 104, 54]);
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

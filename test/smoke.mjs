@@ -14,7 +14,10 @@ import {
   SMELTING, FUEL, DIMENSIONS, blockDrop, blockModel,
   encodeEdit, decodeEditId, decodeEditMeta,
   WOOL_BLOCKS, WOOL_RGB, breakDuration, toolSpeedTier,
+  fluidLevel, isFluidFalling, fluidMeta, isFluidSource, fluidMaxLevel,
+  itemStackMax, itemMaxDurability, foodValue,
 } from '../Minecraft/js/config.js';
+import { FluidSim } from '../Minecraft/js/fluids.js';
 import {
   craftResult, craftCost, SHAPELESS, SHAPED_2, SHAPED_3,
 } from '../Minecraft/js/crafting.js';
@@ -329,7 +332,7 @@ function grid(...entries) {
     edits: { '0,0': { '1,20,3': 36 } },
   };
   const m = migrateSave(v7);
-  assert(m.version === 9, 'migrated save version is 9 (v7 chains through v8 to v9)');
+  assert(m.version === 10, 'migrated save version is 10 (v7 chains through v8/v9 to v10)');
   assert(m.mode === 'survival', 'migrated pre-v9 save gets mode survival');
   assert(m.inventory[0].id === 1033, 'inventory diamond 133 -> 1033');
   assert(m.inventory[2].id === 5, 'inventory block id 5 untouched');
@@ -350,17 +353,164 @@ function grid(...entries) {
 
   // Pre-v7 saves (same item ids, fewer fields) run through the same step.
   const v3 = migrateSave({ version: 3, seed: 1337, inventory: [{ id: 133, count: 1 }] });
-  assert(v3.version === 9 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
+  assert(v3.version === 10 && v3.inventory[0].id === 1033 && v3.mode === 'survival',
     'v3 save migrates through the whole chain');
 
-  // A v8 save only gains the mode field.
+  // A v8 save gains the mode field, then the fluids/boats defaults.
   const v8 = migrateSave({ version: 8, seed: 1337, inventory: [{ id: 1033, count: 1 }] });
-  assert(v8.version === 9 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
-    'v8 save upgrades to v9 with mode survival, ids untouched');
+  assert(v8.version === 10 && v8.inventory[0].id === 1033 && v8.mode === 'survival',
+    'v8 save upgrades to v10 with mode survival, ids untouched');
 
-  // A current save passes through unchanged (creative mode preserved).
+  // v9 -> v10: fluids/boats defaults appear, everything else untouched.
   const v9 = migrateSave({ version: 9, seed: 1337, mode: 'creative', inventory: [{ id: 1033, count: 1 }] });
-  assert(v9.version === 9 && v9.mode === 'creative', 'v9 save is a no-op (mode preserved)');
+  assert(v9.version === 10 && v9.mode === 'creative', 'v9 save upgrades to v10 (mode preserved)');
+  assert(v9.fluids && Array.isArray(v9.fluids.active) && v9.fluids.active.length === 0,
+    'v9 -> v10 adds an empty fluids state');
+  assert(Array.isArray(v9.boats) && v9.boats.length === 0, 'v9 -> v10 adds an empty boats list');
+
+  // A current save passes through unchanged (existing fluids/boats preserved).
+  const v10 = migrateSave({
+    version: 10, seed: 1337, mode: 'creative',
+    fluids: { active: ['1,2,3'] }, boats: [{ x: 1, y: 20, z: 3 }],
+  });
+  assert(v10.version === 10 && v10.fluids.active[0] === '1,2,3' && v10.boats.length === 1,
+    'v10 save is a no-op (fluids/boats preserved)');
+}
+
+// ---- Phase 3: buckets, boats, fishing, fluids ----------------------------------------------
+{
+  // Item definitions
+  assert(itemStackMax(ITEM.BUCKET) === 16, 'bucket stacks to 16');
+  assert(itemStackMax(ITEM.WATER_BUCKET) === 1 && itemStackMax(ITEM.LAVA_BUCKET) === 1,
+    'filled buckets do not stack');
+  assert(itemStackMax(ITEM.BOAT) === 1, 'boat stacks to 1');
+  assert(itemMaxDurability(ITEM.FISHING_ROD) === 64, 'fishing rod durability 64');
+  assert(foodValue(ITEM.RAW_FISH) === 2 && foodValue(ITEM.COOKED_FISH) === 6,
+    'fish food values (raw 2, cooked 6)');
+
+  // Recipes: bucket V, boat U (all three plank families), fishing rod diagonal.
+  const bucket = craftResult(grid(
+    [0, ITEM.IRON_INGOT], [2, ITEM.IRON_INGOT], [4, ITEM.IRON_INGOT],
+  ), 3);
+  assert(bucket && bucket.id === ITEM.BUCKET, '3 iron in a V -> bucket');
+  for (const plank of [BLOCK.PLANK, BLOCK.BIRCH_PLANK, BLOCK.SPRUCE_PLANK]) {
+    const boat = craftResult(grid(
+      [0, plank], [2, plank], [3, plank], [4, plank], [5, plank],
+    ), 3);
+    assert(boat && boat.id === ITEM.BOAT, `5 planks (${plank}) in a U -> boat`);
+  }
+  const rod = craftResult(grid(
+    [2, ITEM.STICK], [4, ITEM.STICK], [5, ITEM.STRING], [6, ITEM.STICK], [8, ITEM.STRING],
+  ), 3);
+  assert(rod && rod.id === ITEM.FISHING_ROD, '3 sticks diagonal + 2 string -> fishing rod');
+
+  // Fuel / smelting
+  assert(FUEL[ITEM.LAVA_BUCKET] === 100, 'lava bucket burns for 100s');
+  assert(SMELTING[ITEM.RAW_FISH] && SMELTING[ITEM.RAW_FISH].id === ITEM.COOKED_FISH,
+    'raw fish smelts to cooked fish');
+
+  // Fluid meta helpers
+  assert(fluidLevel(0) === 0 && isFluidSource(0), 'meta 0 is a source');
+  for (const lvl of [0, 1, 3, 7]) {
+    for (const falling of [false, true]) {
+      const m = fluidMeta(lvl, falling);
+      assert(fluidLevel(m) === lvl && isFluidFalling(m) === falling,
+        `fluidMeta(${lvl}, ${falling}) roundtrips`);
+    }
+  }
+  assert(fluidMaxLevel(BLOCK.WATER) === 7 && fluidMaxLevel(BLOCK.LAVA) === 3,
+    'water spreads to level 7, lava only to 3');
+  // Fluid meta survives the edit encoding.
+  const fv = encodeEdit(BLOCK.WATER, fluidMeta(5, true));
+  assert(decodeEditId(fv) === BLOCK.WATER && fluidLevel(decodeEditMeta(fv)) === 5 &&
+    isFluidFalling(decodeEditMeta(fv)), 'fluid meta roundtrips through encodeEdit');
+}
+
+// ---- Phase 3: FluidSim behaviour against a fake world ---------------------------------------
+{
+  class FakeWorld {
+    constructor() { this.map = new Map(); }
+    key(x, y, z) { return x + ',' + y + ',' + z; }
+    getBlock(x, y, z) { const v = this.map.get(this.key(x, y, z)); return v ? v.id : BLOCK.AIR; }
+    getMeta(x, y, z) { const v = this.map.get(this.key(x, y, z)); return v ? v.meta : 0; }
+    setBlock(x, y, z, id, meta = 0) { this.map.set(this.key(x, y, z), { id, meta }); }
+    setBlocks(list) { for (const e of list) this.setBlock(e.x, e.y, e.z, e.id, e.meta || 0); }
+  }
+  const run = (sim, seconds) => { for (let i = 0; i < seconds * 5; i++) sim.tick(); };
+
+  // Stone floor at y=9 over a wide area.
+  const w = new FakeWorld();
+  for (let x = -12; x <= 24; x++) {
+    for (let z = -12; z <= 24; z++) w.setBlock(x, 9, z, BLOCK.STONE);
+  }
+  const sim = new FluidSim(w);
+
+  // 1) A source spreads horizontally with increasing levels, out to 7.
+  w.setBlock(0, 10, 0, BLOCK.WATER, 0);
+  sim.wake(0, 10, 0);
+  run(sim, 6);
+  assert(w.getBlock(1, 10, 0) === BLOCK.WATER && fluidLevel(w.getMeta(1, 10, 0)) === 1,
+    'water spreads to level 1 next to the source');
+  assert(w.getBlock(3, 10, 0) === BLOCK.WATER && fluidLevel(w.getMeta(3, 10, 0)) === 3,
+    'water level rises with distance');
+  assert(w.getBlock(7, 10, 0) === BLOCK.WATER && fluidLevel(w.getMeta(7, 10, 0)) === 7,
+    'water reaches level 7');
+  assert(w.getBlock(8, 10, 0) === BLOCK.AIR, 'water stops after 7 blocks');
+
+  // 2) Removing the source dries the flow back up.
+  w.setBlock(0, 10, 0, BLOCK.AIR);
+  sim.wake(0, 10, 0);
+  run(sim, 12);
+  assert(w.getBlock(1, 10, 0) === BLOCK.AIR && w.getBlock(5, 10, 0) === BLOCK.AIR,
+    'flowing water dries up when the source is removed');
+
+  // 3) Falling column: a source over a hole becomes a falling stream.
+  const w2 = new FakeWorld();
+  for (let x = -4; x <= 4; x++) for (let z = -4; z <= 4; z++) w2.setBlock(x, 5, z, BLOCK.STONE);
+  w2.setBlock(0, 10, 0, BLOCK.WATER, 0);
+  const sim2 = new FluidSim(w2);
+  sim2.wake(0, 10, 0);
+  run(sim2, 6);
+  assert(w2.getBlock(0, 9, 0) === BLOCK.WATER && isFluidFalling(w2.getMeta(0, 9, 0)),
+    'water falls down as a falling-column cell');
+  assert(w2.getBlock(0, 6, 0) === BLOCK.WATER, 'the stream reaches the floor');
+  assert(w2.getBlock(1, 6, 0) === BLOCK.WATER && fluidLevel(w2.getMeta(1, 6, 0)) === 2,
+    'a landed stream spreads at level 2');
+
+  // 4) Infinite water: an empty cell between two sources becomes a source.
+  const w3 = new FakeWorld();
+  for (let x = -2; x <= 4; x++) w3.setBlock(x, 9, 0, BLOCK.STONE);
+  w3.setBlock(0, 10, 0, BLOCK.WATER, 0);
+  w3.setBlock(2, 10, 0, BLOCK.WATER, 0);
+  const sim3 = new FluidSim(w3);
+  sim3.wake(1, 10, 0);
+  run(sim3, 3);
+  assert(w3.getBlock(1, 10, 0) === BLOCK.WATER && isFluidSource(w3.getMeta(1, 10, 0)),
+    'cell between two sources becomes a new source');
+
+  // 5) Lava + water: source lava hardens to obsidian, flowing lava to cobble.
+  const w4 = new FakeWorld();
+  for (let x = -2; x <= 8; x++) w4.setBlock(x, 9, 0, BLOCK.STONE);
+  w4.setBlock(0, 10, 0, BLOCK.LAVA, 0);                 // source lava
+  w4.setBlock(4, 10, 0, BLOCK.LAVA, fluidMeta(2));      // flowing lava
+  w4.setBlock(1, 10, 0, BLOCK.WATER, 0);
+  w4.setBlock(5, 10, 0, BLOCK.WATER, 0);
+  const sim4 = new FluidSim(w4);
+  let effects = 0;
+  sim4.onEffect = () => effects++;
+  sim4.wake(0, 10, 0);
+  sim4.wake(4, 10, 0);
+  run(sim4, 3);
+  assert(w4.getBlock(0, 10, 0) === BLOCK.OBSIDIAN, 'source lava + water -> obsidian');
+  assert(w4.getBlock(4, 10, 0) === BLOCK.COBBLESTONE, 'flowing lava + water -> cobblestone');
+  assert(effects === 2, 'hardening fires the effect hook');
+
+  // 6) Serialize/restore keeps pending cells.
+  const snap = sim4.serialize();
+  assert(snap && Array.isArray(snap.active), 'FluidSim serializes to { active: [...] }');
+  const sim5 = new FluidSim(w4);
+  sim5.restore(snap);
+  assert(sim5.active.size === sim4.active.size, 'restore re-wakes the pending cells');
 }
 
 // ---- Noise determinism ------------------------------------------------------------------

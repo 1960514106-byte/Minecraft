@@ -150,3 +150,53 @@ Debug handle:
 - [ ] Loading with `?debug=1` exposes `window.__game` (world getter, player,
       inventory, BLOCK/ITEM, setBlock) for automated browser checks; without
       the param it is undefined.
+
+## Phase 3 — Liquids, buckets, boats, fishing (SAVE_VERSION 10)
+
+Save migration:
+- [ ] A v9 world loads cleanly and reports version 10 (`fluids`/`boats` fields
+      added, both empty); worldgen oceans are untouched (they are all sources).
+
+Flowing liquids:
+- [ ] Dig a trench next to an ocean/lake: water flows in, thinning with each
+      block (lowered tops), and stops after 7 blocks on flat ground.
+- [ ] Break the block under a pond: water pours down as a full-height falling
+      column, then spreads where it lands.
+- [ ] Wall off / remove the supplying source: the flow dries back up to air.
+- [ ] Two sources with a 1-block gap: the gap becomes a new source (infinite
+      water); lava never duplicates like this.
+- [ ] Lava spreads only 3 blocks and visibly slower than water.
+- [ ] Water touching a lava SOURCE makes obsidian; touching flowing lava makes
+      cobblestone (with a smoke puff + sound).
+- [ ] Reload mid-flow: the flow finishes after loading (pending cells persist).
+- [ ] Flowing water renders with a sloped, lowered surface; sources and falling
+      columns stay full height. (Known approximation: LAVA still renders as a
+      full cube regardless of level — it lives in the opaque greedy pass.)
+
+Buckets:
+- [ ] 3 iron ingots in a V craft a bucket (stacks to 16).
+- [ ] Right-click a water/lava SOURCE with an empty bucket: the cell empties
+      and the bucket fills. Flowing (non-source) cells cannot be scooped.
+- [ ] Right-click a face with a filled bucket: a source is placed and starts
+      flowing; the bucket returns empty. In creative, buckets never change.
+- [ ] A lava bucket fuels a furnace for 100 s and leaves an empty bucket in
+      the fuel slot.
+
+Boats:
+- [ ] 5 planks in a U (oak, birch or spruce) craft a boat.
+- [ ] Right-click water with the boat item: the boat floats on the surface.
+- [ ] Right-click the boat to board; WASD steers relative to the camera
+      (top speed ~5.5 m/s, coasts to a stop); Space hops off.
+- [ ] The boat stops against solid blocks and barely moves when beached.
+- [ ] Punching the boat pops it back into the item (nothing in creative).
+- [ ] Boats park correctly across dimension travel and survive reload.
+
+Fishing:
+- [ ] Rod crafts from 3 sticks + 2 string (diagonal); durability 64.
+- [ ] Right-click casts a bobber that arcs into water and floats; after 5-15 s
+      it dips for ~0.8 s with a sound cue.
+- [ ] Reeling (right-click) during the dip lands a Raw Fish that flies toward
+      you; outside the window the line comes back empty. Both cost 1 durability
+      (none in creative).
+- [ ] Raw fish smelts into cooked fish (2 vs 6 hunger); village chests can
+      contain raw fish.

@@ -22,6 +22,7 @@ import * as THREE from 'three';
 import {
   CHUNK_SIZE, CHUNK_HEIGHT, ATLAS_COLS, ATLAS_ROWS, BLOCK, TILES,
   isTransparent, isSolid, faceTile, tileUV, FACES, blockModel, isRail,
+  fluidLevel, isFluidFalling,
 } from './config.js';
 import { lightAtWorld } from './lighting.js';
 
@@ -636,6 +637,14 @@ export class Chunk {
           const id = this.data[localIndex(x, y, z)];
           if (id !== BLOCK.WATER) continue;
 
+          // Flowing water (meta level > 0) renders with a lowered top; sources
+          // and falling-column cells keep the full cell (the shader still dips
+          // every water vertex slightly and adds the wave). Side faces shorten
+          // to the same height so the surface reads as a sloping sheet.
+          const meta = this.meta[localIndex(x, y, z)];
+          const lvl = fluidLevel(meta);
+          const topH = (lvl === 0 || isFluidFalling(meta)) ? 1 : Math.max(0.14, 1 - lvl * 0.11);
+
           for (let f = 0; f < FACES.length; f++) {
             const face = FACES[f];
             const nwx = ox + x + face.dir[0];
@@ -664,7 +673,7 @@ export class Chunk {
 
             for (let c = 0; c < 4; c++) {
               const corner = face.corners[c];
-              wa.positions.push(x + corner[0], y + corner[1], z + corner[2]);
+              wa.positions.push(x + corner[0], y + corner[1] * topH, z + corner[2]);
               wa.normals.push(face.dir[0], face.dir[1], face.dir[2]);
               const sel = face.uv[c];
               wa.uvs.push(sel[0] === 0 ? t.u0 : t.u1, sel[1] === 0 ? t.v0 : t.v1);

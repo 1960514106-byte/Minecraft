@@ -126,7 +126,17 @@ function v8to9(save) {
   return save;
 }
 
-const MIGRATIONS = { 7: v7to8, 8: v8to9 };
+// v9 -> v10: Phase 3 added the flowing-fluid sim (pending-cell state) and
+// boats. Both default to empty for older worlds — worldgen water is already
+// all sources (meta 0) so no block data needs rewriting.
+function v9to10(save) {
+  if (!save.fluids) save.fluids = { active: [] };
+  if (!Array.isArray(save.boats)) save.boats = [];
+  save.version = 10;
+  return save;
+}
+
+const MIGRATIONS = { 7: v7to8, 8: v8to9, 9: v9to10 };
 
 export function migrateSave(save) {
   if (!save || typeof save.version !== 'number') return save;

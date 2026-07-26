@@ -26,6 +26,8 @@ import { XPManager } from './xp.js';
 import { Redstone } from './redstone.js';
 import { ProjectileManager } from './projectiles.js';
 import { MinecartManager } from './minecart.js';
+import { BoatManager } from './boat.js';
+import { FluidSim } from './fluids.js';
 import { rollLoot } from './structures.js';
 import { tryLightPortal, collapsePortalAt, buildArrivalPortal, findPortalNear } from './portal.js';
 import { getMode, setMode, isCreative, setOnModeChange } from './gamemode.js';
@@ -37,6 +39,7 @@ import {
   SEED_DROP_CHANCE, WHEAT_GROW_CHANCE, CANE_GROW_CHANCE, toolKind, nextCropStage, isCropBlock,
   itemMaxDurability, placeableBlock, isClimbable, isSolid, isRail, stackEnchant,
   xpFromMining, xpFromKill, isEnchantable, ENCHANTMENTS, decodeEditId, blockModel,
+  fluidLevel,
 } from './config.js';
 
 // ---- Renderer ---------------------------------------------------------------
@@ -102,6 +105,17 @@ const redstoneOver = new Redstone(overworld);
 let redstoneNether = null;
 let redstone = redstoneOver;     // engine of the ACTIVE dimension
 
+// Fluid sims mirror the redstone pattern: one per dimension, `fluids` is the
+// engine of the ACTIVE dimension (rebinds in switchDimension).
+function fluidEffect(x, y, z) {
+  feedback.play('place');
+  feedback.smokePuff(new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5));
+}
+const fluidsOver = new FluidSim(overworld);
+fluidsOver.onEffect = fluidEffect;
+let fluidsNether = null;
+let fluids = fluidsOver;         // sim of the ACTIVE dimension
+
 function ensureNether() {
   if (!netherWorld) {
     netherWorld = new NetherWorld(scene, atlas);
@@ -109,11 +123,14 @@ function ensureNether() {
     redstoneNether.onIgnite = (x, y, z) => igniteTNT(x, y, z);
     redstoneNether.onSound = (name) => feedback.play(name);
     if (save && save.netherRedstone) redstoneNether.restore(save.netherRedstone);
+    fluidsNether = new FluidSim(netherWorld);
+    fluidsNether.onEffect = fluidEffect;
+    if (save && save.netherFluids) fluidsNether.restore(save.netherFluids);
   }
   return netherWorld;
 }
 
-const SAVE_VERSION = 9;
+const SAVE_VERSION = 10;
 // loadGame() already ran the storage.js migration chain, so any accepted save
 // is in the current format regardless of the version it was written with.
 const save = await loadGame();
@@ -124,6 +141,7 @@ if (hasSave && save.netherEdits) ensureNether().loadEdits(save.netherEdits);
 if (hasSave && save.dimension === 'nether') {
   world = ensureNether();
   redstone = redstoneNether;
+  fluids = fluidsNether;
   dayNight.setNether(true);
 }
 if (hasSave && typeof save.time === 'number') dayNight.t = save.time;
@@ -169,9 +187,12 @@ const weather = new Weather(scene);
 if (hasSave && save.weather) weather.restore(save.weather);
 const xpManager = new XPManager(scene, hasSave ? save.xp : null);
 if (hasSave && save.redstone) redstoneOver.restore(save.redstone);
+if (hasSave && save.fluids) fluidsOver.restore(save.fluids);
 const projectiles = new ProjectileManager(scene, world);
 let minecarts = new MinecartManager(scene, world, hasSave ? save.minecarts : null);
 let ridingCart = null;
+let boats = new BoatManager(scene, world, hasSave ? save.boats : null);
+let ridingBoat = null;
 
 // Skeletons fire real arrow entities the player can see and dodge.
 mobs.onShoot = (from, to) => {
@@ -246,6 +267,7 @@ function updateFuses(dt) {
       fuseKeys.delete(f.key);
       if (world.getBlock(f.x, f.y, f.z) === BLOCK.TNT) {
         world.setBlock(f.x, f.y, f.z, BLOCK.AIR);
+        fluids.wake(f.x, f.y, f.z);
         explodeAt(new THREE.Vector3(f.x + 0.5, f.y + 0.5, f.z + 0.5), 3);
       }
     }
@@ -282,25 +304,34 @@ function switchDimension(target) {
     }
   }
   // Park loose entities per dimension and restore the target's bucket.
-  parkedByDim.set(world.dim.id, { drops: drops.serialize(), minecarts: minecarts.serialize() });
-  const parked = parkedByDim.get(target.dim.id) || { drops: null, minecarts: null };
+  parkedByDim.set(world.dim.id, {
+    drops: drops.serialize(),
+    minecarts: minecarts.serialize(),
+    boats: boats.serialize(),
+  });
+  const parked = parkedByDim.get(target.dim.id) || { drops: null, minecarts: null, boats: null };
   parkedByDim.delete(target.dim.id);
   const parkedDrops = parked.drops;
   const parkedCarts = parked.minecarts;
+  const parkedBoats = parked.boats;
   for (let i = drops.drops.length - 1; i >= 0; i--) drops.removeAt(i);
   for (let i = minecarts.carts.length - 1; i >= 0; i--) minecarts.remove(minecarts.carts[i]);
+  for (let i = boats.boats.length - 1; i >= 0; i--) boats.remove(boats.boats[i]);
   // Mobs don't travel between dimensions.
   for (let i = mobs.mobs.length - 1; i >= 0; i--) mobs.removeAt(i);
   ridingCart = null;
+  ridingBoat = null;
   player.riding = null;
 
   world = target;
   player.world = world;
   mobs.world = world;
   redstone = target === overworld ? redstoneOver : redstoneNether;
+  fluids = target === overworld ? fluidsOver : fluidsNether;
   projectiles.world = world;
   drops = new DropManager(scene, world, atlas, parkedDrops);
   minecarts = new MinecartManager(scene, world, parkedCarts);
+  boats = new BoatManager(scene, world, parkedBoats);
   dayNight.setNether(!!world.skyless);
   if (world.skyless) {
     weather.active = false;
@@ -380,6 +411,8 @@ function explodeAt(center, radius) {
     }
   }
   world.setBlocks(edits);
+  // Cleared blocks may have opened paths for nearby liquids.
+  for (const e of edits) fluids.wake(e.x, e.y, e.z);
 
   const pd = player.getObject().position.distanceTo(center);
   if (pd < radius + 2) {
@@ -566,6 +599,7 @@ function gatherState() {
     inventory: inventory.serialize(),
     drops: drops.serialize(),
     minecarts: minecarts.serialize(),
+    boats: boats.serialize(),
     mobs: mobs.serialize(),
     furnaces: furnaces.serialize(),
     chests: chests.serialize(),
@@ -574,6 +608,8 @@ function gatherState() {
     xp: xpManager.serialize(),
     redstone: redstoneOver.serialize(),
     netherRedstone: redstoneNether ? redstoneNether.serialize() : undefined,
+    fluids: fluidsOver.serialize(),
+    netherFluids: fluidsNether ? fluidsNether.serialize() : undefined,
   };
 }
 
@@ -696,6 +732,14 @@ function castFromCamera() {
   camera.getWorldDirection(_dir);
   return world.raycastVoxel(_origin, _dir, 6, INTERACT_HIT);
 }
+// Liquid-aware variant for buckets and boat placement: the default hit test
+// skips WATER/LAVA, but scooping/launching needs to target the liquid itself.
+const LIQUID_HIT = (id) => INTERACT_HIT(id) || id === BLOCK.WATER || id === BLOCK.LAVA;
+function castFromCameraLiquid() {
+  camera.getWorldPosition(_origin);
+  camera.getWorldDirection(_dir);
+  return world.raycastVoxel(_origin, _dir, 6, LIQUID_HIT);
+}
 
 function intersectsPlayer(bx, by, bz) {
   const pos = player.getObject().position;
@@ -773,6 +817,7 @@ function breakBlock(hit, toolId = null) {
   if (id === BLOCK.BEDROCK && !creative) return;
   const center = new THREE.Vector3(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
   world.setBlock(hit.x, hit.y, hit.z, BLOCK.AIR);
+  fluids.wake(hit.x, hit.y, hit.z); // adjacent liquids may flow into the gap
   feedback.burst(id, center);
   feedback.play('break');
   achievements.trigger({ type: 'mine', block: id });
@@ -964,6 +1009,22 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button === 0) {
     triggerSwing();
     if (tryAttackMob()) return;
+    // Punching a boat pops it back into an item (like knocking a cart loose).
+    camera.getWorldPosition(_origin);
+    camera.getWorldDirection(_dir);
+    const boatHit = boats.raycast(_origin, _dir, ATTACK_RANGE);
+    if (boatHit) {
+      const blockHit = world.raycastVoxel(_origin, _dir, ATTACK_RANGE);
+      if (!blockHit || blockHit.distance > boatHit.distance) {
+        if (ridingBoat === boatHit.boat) dismountBoat();
+        const pos = new THREE.Vector3(boatHit.boat.x, boatHit.boat.y + 0.6, boatHit.boat.z);
+        boats.remove(boatHit.boat);
+        if (!isCreative()) drops.spawn(ITEM.BOAT, 1, pos);
+        feedback.play('break');
+        scheduleSave();
+        return;
+      }
+    }
     primaryDown = true;
     beginMining(castFromCamera());
     return;
@@ -1013,11 +1074,16 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         return;
       }
     }
-    // Mount a nearby minecart when not aiming at a close block.
-    if (!ridingCart) {
+    // Mount a nearby minecart or boat when not aiming at a close block.
+    if (!ridingCart && !ridingBoat) {
       const cart = minecarts.nearest(_origin.clone().addScaledVector(_dir, 1.6), 2.0);
       if (cart && (!hit || hit.distance > 2.2)) {
         mountCart(cart);
+        return;
+      }
+      const boat = boats.nearest(_origin.clone().addScaledVector(_dir, 1.6), 2.2);
+      if (boat && (!hit || hit.distance > 2.2)) {
+        mountBoat(boat);
         return;
       }
     }
@@ -1209,6 +1275,78 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       }
     }
 
+    // Empty bucket: scoop a liquid SOURCE cell (raycast must hit liquids).
+    if (held && held.id === ITEM.BUCKET) {
+      const lh = castFromCameraLiquid();
+      if (lh) {
+        const lid = world.getBlock(lh.x, lh.y, lh.z);
+        if ((lid === BLOCK.WATER || lid === BLOCK.LAVA) &&
+            fluidLevel(world.getMeta(lh.x, lh.y, lh.z)) === 0) {
+          world.setBlock(lh.x, lh.y, lh.z, BLOCK.AIR);
+          fluids.wake(lh.x, lh.y, lh.z);
+          if (!isCreative()) {
+            const filled = lid === BLOCK.WATER ? ITEM.WATER_BUCKET : ITEM.LAVA_BUCKET;
+            if (held.count === 1) {
+              inventory.slots[selected] = { id: filled, count: 1 };
+            } else {
+              held.count -= 1;
+              if (inventory.add(filled, 1) > 0) {
+                drops.spawn(filled, 1, player.getObject().position.clone());
+              }
+            }
+          }
+          triggerSwing();
+          feedback.play('place');
+          refreshHotbar();
+          scheduleSave();
+        }
+      }
+      return;
+    }
+
+    // Filled bucket: pour a source into the cell in front of the clicked face.
+    if (held && (held.id === ITEM.WATER_BUCKET || held.id === ITEM.LAVA_BUCKET) && hit) {
+      const px = hit.x + hit.nx, py = hit.y + hit.ny, pz = hit.z + hit.nz;
+      const target = world.getBlock(px, py, pz);
+      const pourable = target === BLOCK.AIR || target === BLOCK.TALL_GRASS ||
+                       target === BLOCK.FLOWER_RED || target === BLOCK.FLOWER_YELLOW;
+      if (pourable) {
+        world.setBlock(px, py, pz, held.id === ITEM.WATER_BUCKET ? BLOCK.WATER : BLOCK.LAVA, 0);
+        fluids.wake(px, py, pz);
+        if (!isCreative()) inventory.slots[selected] = { id: ITEM.BUCKET, count: 1 };
+        triggerSwing();
+        feedback.play('place');
+        refreshHotbar();
+        scheduleSave();
+      }
+      return;
+    }
+
+    // Boat item: launch onto a water surface.
+    if (held && held.id === ITEM.BOAT) {
+      const lh = castFromCameraLiquid();
+      if (lh && world.getBlock(lh.x, lh.y, lh.z) === BLOCK.WATER) {
+        if (boats.spawn(lh.x + 0.5, lh.z + 0.5)) {
+          if (!isCreative()) inventory.removeOneAt(selected);
+          triggerSwing();
+          feedback.play('place');
+          refreshHotbar();
+          scheduleSave();
+        }
+      } else {
+        survival._setMessage('Boats need water');
+      }
+      return;
+    }
+
+    // Fishing rod: cast the bobber, or reel in whatever is out there.
+    if (held && held.id === ITEM.FISHING_ROD) {
+      if (bobber) reelInBobber();
+      else castBobber();
+      triggerSwing();
+      return;
+    }
+
     if (held && held.id === ITEM.BOW) {
       if (isCreative() || inventory.count(ITEM.ARROW) > 0) {
         bowCharging = true;
@@ -1294,6 +1432,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     }
     if (!intersectsPlayer(px, py, pz)) {
       world.setBlock(px, py, pz, blockId, placeMeta);
+      fluids.wake(px, py, pz); // placing may displace/block nearby liquids
       // Place paired blocks (door top, bed head)
       if (blockId === BLOCK.DOOR_BOTTOM) {
         world.setBlock(px, py + 1, pz, BLOCK.DOOR_TOP);
@@ -1855,7 +1994,14 @@ if (new URLSearchParams(location.search).has('debug')) {
     inventory,
     BLOCK,
     ITEM,
-    setBlock: (x, y, z, id, meta = 0) => world.setBlock(x, y, z, id, meta),
+    get fluids() { return fluids; },
+    get boats() { return boats; },
+    get drops() { return drops; },
+    // Debug edits also wake the fluid sim, matching player place/break.
+    setBlock: (x, y, z, id, meta = 0) => {
+      world.setBlock(x, y, z, id, meta);
+      fluids.wake(x, y, z);
+    },
   };
 }
 
@@ -2414,6 +2560,145 @@ function dismountCart() {
   player.velocity.set(0, 4, 0);
 }
 
+// ---- Boat riding (mirrors minecart riding) --------------------------------------
+function mountBoat(boat) {
+  ridingBoat = boat;
+  boat.ridden = true;
+  player.riding = boat;
+  achievements.trigger({ type: 'ride' });
+  survival._setMessage('Boarding (Space to hop off)');
+}
+
+function dismountBoat() {
+  if (!ridingBoat) return;
+  ridingBoat.ridden = false;
+  const boat = ridingBoat;
+  ridingBoat = null;
+  player.riding = null;
+  player.getObject().position.set(boat.x, boat.y + 1 + 1.62, boat.z);
+  player.velocity.set(0, 4, 0);
+}
+
+// ---- Fishing -----------------------------------------------------------------
+// A single per-player bobber: cast on right click, floats when it lands in
+// water, "bites" after a random 5-15 s wait (short dip + sound cue). Reeling
+// during the bite window lands a raw fish that flies toward the player.
+let bobber = null;
+
+function makeBobberMesh() {
+  const g = new THREE.Group();
+  const top = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.08, 0.14),
+    new THREE.MeshLambertMaterial({ color: 0xd8352a }),
+  );
+  top.position.y = 0.04;
+  g.add(top);
+  const bottom = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.08, 0.14),
+    new THREE.MeshLambertMaterial({ color: 0xf2f2f4 }),
+  );
+  bottom.position.y = -0.04;
+  g.add(bottom);
+  return g;
+}
+
+function removeBobber() {
+  if (!bobber) return;
+  scene.remove(bobber.mesh);
+  bobber.mesh.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) o.material.dispose();
+  });
+  bobber = null;
+}
+
+function castBobber() {
+  camera.getWorldPosition(_origin);
+  camera.getWorldDirection(_dir);
+  const mesh = makeBobberMesh();
+  mesh.position.copy(_origin).addScaledVector(_dir, 0.5);
+  scene.add(mesh);
+  bobber = {
+    mesh,
+    vel: _dir.clone().multiplyScalar(11).add(new THREE.Vector3(0, 2.5, 0)),
+    state: 'fly',           // 'fly' -> 'float' -> 'bite' -> back to 'float'
+    t: 0,
+    wait: 0,
+    bite: 0,
+    baseY: 0,
+  };
+  feedback.play('bowShoot');
+}
+
+function reelInBobber() {
+  const wasBite = bobber.state === 'bite';
+  const pos = bobber.mesh.position.clone();
+  removeBobber();
+  consumeDurability(selected, 1);
+  if (wasBite) {
+    drops.spawn(ITEM.RAW_FISH, 1, pos);
+    const d = drops.drops[drops.drops.length - 1];
+    if (d) {
+      // The catch flies out of the water toward the player.
+      const to = player.getObject().position.clone().sub(pos);
+      to.y = 0;
+      to.normalize();
+      d.velocity.set(to.x * 7, 6.5, to.z * 7);
+    }
+    survival._setMessage('Caught a fish!');
+    feedback.play('pickup');
+  }
+  refreshHotbar();
+  scheduleSave();
+}
+
+function updateFishing(dt) {
+  if (!bobber) return;
+  const heldStack = inventory.get(selected);
+  // Switching items, dying or wandering off abandons the line.
+  if (!heldStack || heldStack.id !== ITEM.FISHING_ROD || !survival.alive) {
+    removeBobber();
+    return;
+  }
+  const b = bobber;
+  const p = b.mesh.position;
+  b.t += dt;
+  if (b.state === 'fly') {
+    b.vel.y -= 9 * dt;               // gentle arc
+    p.addScaledVector(b.vel, dt);
+    const cell = world.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
+    if (cell === BLOCK.WATER) {
+      // Snap to the water surface of this column and start waiting.
+      let wy = Math.floor(p.y);
+      while (world.getBlock(Math.floor(p.x), wy + 1, Math.floor(p.z)) === BLOCK.WATER) wy++;
+      b.baseY = wy + 0.8;
+      b.state = 'float';
+      b.wait = 5 + Math.random() * 10;
+      feedback.placeBurst(BLOCK.WATER, p.clone());
+    } else if (isSolid(cell) || p.y < -4 || b.t > 12) {
+      removeBobber();               // hit land / lost: line snaps back silently
+      return;
+    }
+  } else if (b.state === 'float') {
+    p.y = b.baseY + Math.sin(b.t * 2.2) * 0.04;
+    b.wait -= dt;
+    if (b.wait <= 0) {
+      b.state = 'bite';
+      b.bite = 0.8;                 // reel within this window to land the fish
+      feedback.play('pickup');
+      feedback.placeBurst(BLOCK.WATER, p.clone());
+    }
+  } else if (b.state === 'bite') {
+    p.y = b.baseY - 0.25;           // the dip is the visual cue
+    b.bite -= dt;
+    if (b.bite <= 0) {
+      b.state = 'float';
+      b.wait = 5 + Math.random() * 10;
+    }
+  }
+  if (p.distanceTo(player.getObject().position) > 40) removeBobber();
+}
+
 // ---- Achievements page ----------------------------------------------------------
 const achievementsScreenEl = document.getElementById('achievementsScreen');
 const achievementsListEl = document.getElementById('achievementsList');
@@ -2740,6 +3025,12 @@ function animate() {
   // Redstone tick engine (buttons, plates, repeaters, pistons, lamps, rails).
   redstone.update(dt, p, mobs.mobs, minecarts.carts);
 
+  // Flowing liquids (5 Hz cellular automaton; writes persist as world edits).
+  if (fluids.update(dt)) scheduleSave();
+
+  // Fishing bobber (cast/float/bite state machine).
+  updateFishing(dt);
+
   // Minecarts: physics + riding.
   const cartEvents = minecarts.update(dt, p, mobs.mobs);
   for (const ev of cartEvents) {
@@ -2763,11 +3054,33 @@ function animate() {
     }
   }
 
+  // Boats: floating physics + riding (WASD relative to the camera yaw).
+  boats.update(dt, p);
+  if (ridingBoat) {
+    if (player.keys['Space']) {
+      dismountBoat();
+    } else {
+      camera.getWorldDirection(_dir);
+      const fx = _dir.x, fz = _dir.z;
+      const fl = Math.hypot(fx, fz) || 1;
+      const fwdX = fx / fl, fwdZ = fz / fl;
+      const rightX = -fwdZ, rightZ = fwdX;
+      let ix = 0, iz = 0;
+      if (player.keys['KeyW']) { ix += fwdX; iz += fwdZ; }
+      if (player.keys['KeyS']) { ix -= fwdX; iz -= fwdZ; }
+      if (player.keys['KeyD']) { ix += rightX; iz += rightZ; }
+      if (player.keys['KeyA']) { ix -= rightX; iz -= rightZ; }
+      const il = Math.hypot(ix, iz);
+      if (il > 0) boats.drive(ridingBoat, ix / il, iz / il, dt);
+      player.getObject().position.set(ridingBoat.x, ridingBoat.y + 0.55 + 1.1, ridingBoat.z);
+    }
+  }
+
   // Nether portals: standing inside one for a moment travels between worlds.
   if (portalCooldown > 0) portalCooldown -= dt;
   {
     const feetBlock = world.getBlock(Math.floor(p.x), Math.floor(p.y - 1.0), Math.floor(p.z));
-    if (feetBlock === BLOCK.NETHER_PORTAL && portalCooldown <= 0 && !ridingCart) {
+    if (feetBlock === BLOCK.NETHER_PORTAL && portalCooldown <= 0 && !ridingCart && !ridingBoat) {
       portalTimer += dt;
       if (Math.random() < dt * 4) feedback.warpBurst(p.clone().add(new THREE.Vector3(0, -1, 0)));
       if (portalTimer >= 1.2) {

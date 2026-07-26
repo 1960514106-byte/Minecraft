@@ -184,6 +184,14 @@ const SHAPED_3 = [
   { shape: [BLOCK.SPRUCE_PLANK, null, null, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, null, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK], out: { id: BLOCK.SPRUCE_STAIRS, count: 4 } },
   // Bed also accepts the white wool BLOCK (the ITEM.WOOL recipe above is legacy)
   { shape: [BLOCK.PLANK, BLOCK.WOOL_WHITE, BLOCK.WOOL_WHITE, BLOCK.PLANK, BLOCK.WOOL_WHITE, BLOCK.WOOL_WHITE, BLOCK.PLANK, null, null], out: { id: ITEM.BED, count: 1 } },
+  // Bucket: 3 iron ingots in a V
+  { shape: [ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, null, ITEM.IRON_INGOT, null, null, null, null], out: { id: ITEM.BUCKET, count: 1 } },
+  // Boat: 5 planks in a U (one recipe per plank family, all yield the same boat)
+  { shape: [BLOCK.PLANK, null, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, BLOCK.PLANK, null, null, null], out: { id: ITEM.BOAT, count: 1 } },
+  { shape: [BLOCK.BIRCH_PLANK, null, BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK, BLOCK.BIRCH_PLANK, null, null, null], out: { id: ITEM.BOAT, count: 1 } },
+  { shape: [BLOCK.SPRUCE_PLANK, null, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, BLOCK.SPRUCE_PLANK, null, null, null], out: { id: ITEM.BOAT, count: 1 } },
+  // Fishing rod: 3 sticks on the diagonal, string hanging off the tip
+  { shape: [null, null, ITEM.STICK, null, ITEM.STICK, ITEM.STRING, ITEM.STICK, null, ITEM.STRING], out: { id: ITEM.FISHING_ROD, count: 1 } },
 ];
 
 function activeSlots(grid, size) {
